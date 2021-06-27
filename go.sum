@@ -1,0 +1,4 @@
+github.com/go-test/deep v1.0.7 h1:/VSMRlnY/JSyqxQUzQLKVMAskpY/NZKFA5j2P+0pP2M=
+github.com/go-test/deep v1.0.7/go.mod h1:QV8Hv/iy04NyLBxAdO9njL0iVPN1S4d/A3NVv1V36o8=
+github.com/jbenet/go-is-domain v1.0.5 h1:r92uiHbMEJo9Fkey5pMBtZAzjPQWic0ieo7Jw1jEuQQ=
+github.com/jbenet/go-is-domain v1.0.5/go.mod h1:xbRLRb0S7FgzDBTJlguhDVwLYM/5yNtvktxj2Ttfy7Q=
