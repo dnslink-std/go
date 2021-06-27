@@ -1,0 +1,25 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-latest
+          - os: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v2
+      with:
+        go-version: "1.16.5"
+    - uses: actions/setup-node@v1
+      with:
+        node-version: 16
+    - run: go get
+    - run: go test
+    - run: go build -o=integration/main integration/main.go && npx @dnslink/test -e log -- ./integration/main
+      if: ${{ matrix.os == 'ubuntu-latest' }}
