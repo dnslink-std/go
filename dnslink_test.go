@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-test/deep"
+	assert "github.com/stretchr/testify/assert"
 )
 
 type mockDNS struct {
@@ -131,13 +132,12 @@ func TestResolveTxtEntries(t *testing.T) {
 }
 
 func TestGetPathFromLog(t *testing.T) {
-	assertDeepEqual(t, getPathFromLog([]LogStatement{}), []PathEntry{})
-	assertDeepEqual(t, getPathFromLog([]LogStatement{
-		{Code: "RESOLVE", Pathname: "/foo/bar"},
-	}), []PathEntry{
+	a := assert.New(t)
+	a.EqualValues(getPathFromLog([]LogStatement{}), []PathEntry{})
+	a.EqualValues(getPathFromLog([]LogStatement{{Code: "RESOLVE", Pathname: "/foo/bar"}}), []PathEntry{
 		{Pathname: "/foo/bar"},
 	})
-	assertDeepEqual(t, getPathFromLog([]LogStatement{
+	a.EqualValues(getPathFromLog([]LogStatement{
 		{Code: "REDIRECT", Pathname: "/foo/bar", Search: map[string][]string{"foo": {"bar", "baz"}}},
 		{Code: "REDIRECT", Pathname: "/too/tar", Search: map[string][]string{"too": {"tar", "taz"}}},
 		{Code: "RESOLVE", Pathname: "/baz/bak"},
