@@ -8,4 +8,4 @@ The reference implementation for DNSLink in golang.
 
 ## License
 
-[MIT](./LICENSE)
+Published under dual-license: [MIT OR Apache-2.0](./LICENSE)
