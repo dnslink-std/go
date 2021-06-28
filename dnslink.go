@@ -95,6 +95,7 @@ func (r *Resolver) ResolveN(domain string) (Result, error) {
 
 type LookupTXTFunc func(name string) (txt []string, err error)
 
+const Version = "v0.0.1"
 const dnsPrefix = "_dnslink."
 const txtPrefix = "dnslink="
 
