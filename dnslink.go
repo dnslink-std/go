@@ -56,12 +56,6 @@ func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-type Result struct {
-	Links map[string]string `json:"links"`
-	Path  []PathEntry       `json:"path"`
-	Log   []LogStatement    `json:"log"`
-}
-
 type URLParts struct {
 	Domain   string
 	Pathname string
@@ -81,45 +75,83 @@ func (url *URLParts) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-func relevantURLParts(input string) URLParts {
-	result, error := url.Parse(input)
-	if error != nil {
-		return URLParts{
-			Domain:   "",
-			Pathname: "",
-			Search:   map[string][]string{},
-		}
-	}
-	domain := ""
-	pathname := ""
-	if result.Host != "" {
-		domain = result.Host
-		pathname = result.Path
-	} else if result.Path != "" {
-		parts := strings.SplitN(result.Path, "/", 2)
-		domain = parts[0]
-		if len(parts) == 2 {
-			pathname = "/" + parts[1]
-		}
-	}
-	pathparts := strings.Split(pathname, "/")
-	for index, pathpart := range pathparts {
-		pathparts[index] = url.PathEscape(pathpart)
-	}
-	pathname = strings.Join(pathparts, "/")
-	search, searchError := url.ParseQuery(result.RawQuery)
-	if searchError != nil {
-		search = make(map[string][]string)
-	}
-	return URLParts{
-		Domain:   domain,
-		Pathname: pathname,
-		Search:   search,
-	}
+type Result struct {
+	Links map[string]string `json:"links"`
+	Path  []PathEntry       `json:"path"`
+	Log   []LogStatement    `json:"log"`
 }
+
+type Resolver struct {
+	LookupTXT LookupTXTFunc
+}
+
+func (r *Resolver) Resolve(domain string) (Result, error) {
+	return resolve(r, domain, false)
+}
+
+func (r *Resolver) ResolveN(domain string) (Result, error) {
+	return resolve(r, domain, true)
+}
+
+type LookupTXTFunc func(name string) (txt []string, err error)
 
 const dnsPrefix = "_dnslink."
 const txtPrefix = "dnslink="
+
+var defaultResolver = &Resolver{}
+
+func Resolve(domain string) (Result, error) {
+	return defaultResolver.Resolve(domain)
+}
+
+func ResolveN(domain string) (Result, error) {
+	return defaultResolver.ResolveN(domain)
+}
+
+func resolve(r *Resolver, domain string, recursive bool) (result Result, err error) {
+	lookupTXT := r.LookupTXT
+	if lookupTXT == nil {
+		lookupTXT = net.LookupTXT
+	}
+	lookup, error := validateDomain(domain)
+	result.Links = map[string]string{}
+	result.Path = []PathEntry{}
+	result.Log = []LogStatement{}[:]
+	if lookup == nil {
+		result.Log = append(result.Log, *error)
+		return result, nil
+	}
+	chain := make(map[string]bool)
+	for {
+		domain = lookup.Domain
+		resolve := LogStatement{Code: "RESOLVE", Domain: domain, Pathname: lookup.Pathname, Search: lookup.Search}
+		txtEntries, error := lookupTXT(domain)
+		if error != nil && !strings.HasPrefix(domain, dnsPrefix) {
+			chain[domain] = true
+			result.Log = append(result.Log, resolve)
+			return result, error
+		}
+		links, partialLog, redirect := resolveTxtEntries(domain, recursive, txtEntries)
+		result.Log = append(result.Log, partialLog...)
+		if redirect == nil {
+			result.Log = append(result.Log, resolve)
+			result.Links = links
+			result.Path = getPathFromLog(result.Log)
+			return result, nil
+		}
+		if chain[redirect.Domain] {
+			result.Log = append(result.Log, resolve, LogStatement{Code: "ENDLESS_REDIRECT", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
+			return result, nil
+		}
+		if len(chain) == 31 {
+			result.Log = append(result.Log, resolve, LogStatement{Code: "TOO_MANY_REDIRECTS", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
+			return result, nil
+		}
+		chain[domain] = true
+		result.Log = append(result.Log, LogStatement{Code: "REDIRECT", Domain: lookup.Domain, Pathname: lookup.Pathname, Search: lookup.Search})
+		lookup = redirect
+	}
+}
 
 func validateDomain(input string) (*URLParts, *LogStatement) {
 	urlParts := relevantURLParts(input)
@@ -157,53 +189,40 @@ type processedEntry struct {
 	entry string
 }
 
-func (r *Resolver) Resolve(domain string) (Result, error) {
-	return r.resolve(domain, false)
-}
-
-func (r *Resolver) ResolveN(domain string) (Result, error) {
-	return r.resolve(domain, true)
-}
-
-func (r *Resolver) resolve(domain string, recursive bool) (result Result, err error) {
-	r.setDefaults()
-	lookup, error := validateDomain(domain)
-	result.Links = map[string]string{}
-	result.Path = []PathEntry{}
-	result.Log = []LogStatement{}[:]
-	if lookup == nil {
-		result.Log = append(result.Log, *error)
-		return result, nil
+func relevantURLParts(input string) URLParts {
+	result, error := url.Parse(input)
+	if error != nil {
+		return URLParts{
+			Domain:   "",
+			Pathname: "",
+			Search:   map[string][]string{},
+		}
 	}
-	chain := make(map[string]bool)
-	for {
-		domain = lookup.Domain
-		resolve := LogStatement{Code: "RESOLVE", Domain: domain, Pathname: lookup.Pathname, Search: lookup.Search}
-		txtEntries, error := r.LookupTXT(domain)
-		if error != nil && !strings.HasPrefix(domain, dnsPrefix) {
-			chain[domain] = true
-			result.Log = append(result.Log, resolve)
-			return result, error
+	domain := ""
+	pathname := ""
+	if result.Host != "" {
+		domain = result.Host
+		pathname = result.Path
+	} else if result.Path != "" {
+		parts := strings.SplitN(result.Path, "/", 2)
+		domain = parts[0]
+		if len(parts) == 2 {
+			pathname = "/" + parts[1]
 		}
-		links, partialLog, redirect := resolveTxtEntries(domain, recursive, txtEntries)
-		result.Log = append(result.Log, partialLog...)
-		if redirect == nil {
-			result.Log = append(result.Log, resolve)
-			result.Links = links
-			result.Path = getPathFromLog(result.Log)
-			return result, nil
-		}
-		if chain[redirect.Domain] {
-			result.Log = append(result.Log, resolve, LogStatement{Code: "ENDLESS_REDIRECT", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
-			return result, nil
-		}
-		if len(chain) == 31 {
-			result.Log = append(result.Log, resolve, LogStatement{Code: "TOO_MANY_REDIRECTS", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
-			return result, nil
-		}
-		chain[domain] = true
-		result.Log = append(result.Log, LogStatement{Code: "REDIRECT", Domain: lookup.Domain, Pathname: lookup.Pathname, Search: lookup.Search})
-		lookup = redirect
+	}
+	pathparts := strings.Split(pathname, "/")
+	for index, pathpart := range pathparts {
+		pathparts[index] = url.PathEscape(pathpart)
+	}
+	pathname = strings.Join(pathparts, "/")
+	search, searchError := url.ParseQuery(result.RawQuery)
+	if searchError != nil {
+		search = make(map[string][]string)
+	}
+	return URLParts{
+		Domain:   domain,
+		Pathname: pathname,
+		Search:   search,
 	}
 }
 
@@ -315,31 +334,4 @@ func validateDNSLinkEntry(entry string) (key string, value string, error string)
 		return "", "", "NO_VALUE"
 	}
 	return key, value, ""
-}
-
-type LookupTXTFunc func(name string) (txt []string, err error)
-
-func Resolve(domain string) (Result, error) {
-	return defaultResolver.Resolve(domain)
-}
-
-func ResolveN(domain string) (Result, error) {
-	return defaultResolver.ResolveN(domain)
-}
-
-type Resolver struct {
-	LookupTXT LookupTXTFunc
-}
-
-var defaultResolver = &Resolver{}
-
-func NewResolver() *Resolver {
-	return &Resolver{net.LookupTXT}
-}
-
-func (r *Resolver) setDefaults() {
-	// check internal params
-	if r.LookupTXT == nil {
-		r.LookupTXT = net.LookupTXT
-	}
 }
