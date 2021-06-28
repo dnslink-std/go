@@ -70,15 +70,15 @@ func relevantURLParts(input string) URLParts {
 	}
 }
 
-const DNS_PREFIX = "_dnslink."
-const TXT_PREFIX = "dnslink="
+const dnsPrefix = "_dnslink."
+const txtPrefix = "dnslink="
 
 func validateDomain(input string) (*URLParts, *LogStatement) {
 	urlParts := relevantURLParts(input)
 	domain := urlParts.Domain
-	if strings.HasPrefix(domain, DNS_PREFIX) {
-		domain = domain[len(DNS_PREFIX):]
-		if strings.HasPrefix(domain, DNS_PREFIX) {
+	if strings.HasPrefix(domain, dnsPrefix) {
+		domain = domain[len(dnsPrefix):]
+		if strings.HasPrefix(domain, dnsPrefix) {
 			return nil, &LogStatement{
 				Code:     "RECURSIVE_DNSLINK_PREFIX",
 				Domain:   urlParts.Domain,
@@ -98,7 +98,7 @@ func validateDomain(input string) (*URLParts, *LogStatement) {
 		}
 	}
 	return &URLParts{
-		Domain:   DNS_PREFIX + domain,
+		Domain:   dnsPrefix + domain,
 		Pathname: urlParts.Pathname,
 		Search:   urlParts.Search,
 	}, nil
@@ -132,7 +132,7 @@ func (r *Resolver) resolve(domain string, recursive bool) (result Result, err er
 		domain = lookup.Domain
 		resolve := LogStatement{Code: "RESOLVE", Domain: domain, Pathname: lookup.Pathname, Search: lookup.Search}
 		txtEntries, error := r.LookupTXT(domain)
-		if error != nil && !strings.HasPrefix(domain, DNS_PREFIX) {
+		if error != nil && !strings.HasPrefix(domain, dnsPrefix) {
 			chain[domain] = true
 			result.Log = append(result.Log, resolve)
 			return result, error
@@ -182,8 +182,8 @@ func getPathFromLog(log []LogStatement) []PathEntry {
 func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (links map[string]string, log []LogStatement, redirect *URLParts) {
 	links = make(map[string]string)
 	log = []LogStatement{}[:]
-	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, DNS_PREFIX) {
-		return links, log, &URLParts{Domain: domain[len(DNS_PREFIX):]}
+	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, dnsPrefix) {
+		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}
 	}
 	found, log := processEntries(txtEntries)
 	dns, hasDns := found["dns"]
@@ -213,7 +213,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (link
 
 func hasDNSLinkEntry(txtEntries []string) bool {
 	for _, txtEntry := range txtEntries {
-		if strings.HasPrefix(txtEntry, TXT_PREFIX) {
+		if strings.HasPrefix(txtEntry, txtPrefix) {
 			return true
 		}
 	}
@@ -224,7 +224,7 @@ func processEntries(dnslinkEntries []string) (map[string]processedEntry, []LogSt
 	log := []LogStatement{}[:]
 	found := make(map[string]processedEntry)
 	for _, entry := range dnslinkEntries {
-		if !strings.HasPrefix(entry, TXT_PREFIX) {
+		if !strings.HasPrefix(entry, txtPrefix) {
 			continue
 		}
 		key, value, error := validateDNSLinkEntry(entry)
@@ -247,7 +247,7 @@ func processEntries(dnslinkEntries []string) (map[string]processedEntry, []LogSt
 }
 
 func validateDNSLinkEntry(entry string) (key string, value string, error string) {
-	trimmed := strings.TrimSpace(entry[len(TXT_PREFIX):])
+	trimmed := strings.TrimSpace(entry[len(txtPrefix):])
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", "", "WRONG_START"
 	}
