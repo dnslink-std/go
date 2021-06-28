@@ -1,6 +1,7 @@
 package dnslink
 
 import (
+	"encoding/json"
 	"net"
 	"net/url"
 	"strings"
@@ -9,17 +10,50 @@ import (
 )
 
 type PathEntry struct {
-	Pathname string              `json:"pathname"`
-	Search   map[string][]string `json:"search"`
+	Pathname string
+	Search   map[string][]string
+}
+
+func (p *PathEntry) MarshalJSON() ([]byte, error) {
+	out := map[string]interface{}{}
+	if p.Pathname != "" {
+		out["pathname"] = p.Pathname
+	}
+	if len(p.Search) > 0 {
+		out["search"] = p.Search
+	}
+	return json.Marshal(out)
 }
 
 type LogStatement struct {
-	Code     string              `json:"code"`
-	Domain   string              `json:"domain"`
-	Entry    string              `json:"entry"`
-	Reason   string              `json:"reason"`
-	Pathname string              `json:"pathname"`
-	Search   map[string][]string `json:"search"`
+	Code     string
+	Domain   string
+	Entry    string
+	Reason   string
+	Pathname string
+	Search   map[string][]string
+}
+
+func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
+	out := map[string]interface{}{
+		"code": stmt.Code,
+	}
+	if stmt.Domain != "" {
+		out["domain"] = stmt.Domain
+	}
+	if stmt.Entry != "" {
+		out["entry"] = stmt.Entry
+	}
+	if stmt.Reason != "" {
+		out["reason"] = stmt.Reason
+	}
+	if stmt.Pathname != "" {
+		out["pathname"] = stmt.Pathname
+	}
+	if len(stmt.Search) > 0 {
+		out["search"] = stmt.Search
+	}
+	return json.Marshal(out)
 }
 
 type Result struct {
@@ -27,10 +61,24 @@ type Result struct {
 	Path  []PathEntry       `json:"path"`
 	Log   []LogStatement    `json:"log"`
 }
+
 type URLParts struct {
-	Domain   string              `json:"domain"`
-	Pathname string              `json:"pathname"`
-	Search   map[string][]string `json:"search"`
+	Domain   string
+	Pathname string
+	Search   map[string][]string
+}
+
+func (url *URLParts) MarshalJSON() ([]byte, error) {
+	out := map[string]interface{}{
+		"domain": url.Domain,
+	}
+	if url.Pathname != "" {
+		out["pathname"] = url.Pathname
+	}
+	if len(url.Search) > 0 {
+		out["search"] = url.Search
+	}
+	return json.Marshal(out)
 }
 
 func relevantURLParts(input string) URLParts {
