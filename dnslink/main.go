@@ -285,7 +285,7 @@ var formats []interface{} = []interface{}{"json", "txt", "csv"}
 func main() {
 	options, lookups := getOptions(os.Args[1:])
 	if options.has("help", "h") {
-		showHelp()
+		showHelp("dnslink")
 		return
 	}
 	if options.has("version", "v") {
@@ -293,7 +293,7 @@ func main() {
 		return
 	}
 	if len(lookups) == 0 {
-		showHelp()
+		showHelp("dnslink")
 		os.Exit(1)
 		return
 	}
@@ -364,6 +364,55 @@ func getServers(raw []interface{}) []string {
 	return servers
 }
 
+func showHelp(command string) int {
+	fmt.Printf(command + ` - resolve dns links in TXT records
+
+USAGE
+    ` + command + ` [--help] [--format=json|text|csv] [--key=<key>] [--debug] \\
+        [--dns=server] [--recursive] \\
+        <hostname> [...<hostname>]
+
+EXAMPLE
+    # Recursively receive the dnslink entries for the dnslink.io domain.
+    > ` + command + ` -r dnslink.io
+    /ipfs/QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
+
+    # Receive only the ipfs entry as text for dnslink.io
+    > ` + command + ` -k=ipfs dnslink.io
+    QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
+
+    # Receive all dnslink entries for multiple domains as csv
+    > ` + command + ` -f=csv dnslink.io ipfs.io
+    lookup,key,value,path
+    "dnslink.io","ipfs","QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo",
+    "ipfs.io","ipns","website.ipfs.io",
+
+    # Receive ipfs entries for multiple domains as json
+    > ` + command + ` -f=json -k=ipfs dnslink.io website.ipfs.io
+    [
+    {"lookup":"website.ipfs.io","links":{"ipfs":"bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"},"path":[]}
+    ,{"lookup":"dnslink.io","links":{"ipfs":"QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"},"path":[]}
+    ]
+
+    # Receive both the result and log and write the output to files
+    > ` + command + ` -f=csv -d dnslink.io \\
+        >dnslink-io.csv \\
+        2>dnslink-io.log.csv
+
+OPTIONS
+    --help, -h        Show this help.
+    --version, -v     Show the version of this command.
+    --format, -f      Output format json, text or csv (default=json)
+    --dns=<server>    Specify a dns server to use. If you don't specify a
+                      server it will use the system dns service. As server you
+                      can specify a domain with port: 1.1.1.1:53
+    --debug, -d       Render log output to stderr in the specified format.
+    --key, -k         Only render one particular dnslink key.
+    --recursive, -r   Lookup recursive dnslink entries.
+
+    Read more about it here: https://github.com/dnslink-std/go
+
+dnslink-go@` + dnslink.Version)
 	return 0
 }
 
