@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
+	"net"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	dnslink "github.com/dnslink-std/go"
 )
@@ -313,6 +317,9 @@ func main() {
 		output = NewWriteJSON(writeOpts)
 	}
 	resolver := dnslink.Resolver{}
+	if options.has("dns") {
+		resolver.LookupTXT = getLookup(options.get("dns"))
+	}
 	for _, lookup := range lookups {
 		var result dnslink.Result
 		var error error
@@ -329,10 +336,34 @@ func main() {
 	output.end()
 }
 
-func showHelp() int {
-	fmt.Println(`foo
-  help
-help`)
+func getLookup(raw []interface{}) dnslink.LookupTXTFunc {
+	servers := getServers(raw)
+	dns := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(10000),
+			}
+			server := servers[rand.Intn(len(servers))]
+			return d.DialContext(ctx, network, server)
+		},
+	}
+	return func(domain string) (txt []string, err error) {
+		return dns.LookupTXT(context.Background(), domain)
+	}
+}
+
+func getServers(raw []interface{}) []string {
+	servers := []string{}
+	for _, entry := range raw {
+		switch string := entry.(type) {
+		case string:
+			servers = append(servers, string)
+		}
+	}
+	return servers
+}
+
 	return 0
 }
 
