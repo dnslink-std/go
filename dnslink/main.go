@@ -312,8 +312,15 @@ func main() {
 	} else {
 		output = NewWriteJSON(writeOpts)
 	}
+	resolver := dnslink.Resolver{}
 	for _, lookup := range lookups {
-		result, error := dnslink.ResolveN(lookup)
+		var result dnslink.Result
+		var error error
+		if options.has("r", "recursive") {
+			result, error = resolver.ResolveN(lookup)
+		} else {
+			result, error = resolver.Resolve(lookup)
+		}
 		if error != nil {
 			panic(error)
 		}
