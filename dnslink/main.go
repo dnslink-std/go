@@ -141,18 +141,20 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 	if len(write.options.domains) > 1 {
 		prefix = lookup + ": "
 	}
-	for key, value := range result.Links {
-		for _, part := range result.Path {
-			value += " [" + renderPath(part) + "]"
-		}
-
-		if write.options.searchKey != false {
-			if write.options.searchKey != key {
-				continue
+	for key, values := range result.Links {
+		for _, value := range values {
+			for _, part := range result.Path {
+				value += " [" + renderPath(part) + "]"
 			}
-			out.Println(prefix + value)
-		} else {
-			out.Println(prefix + "/" + key + "/" + value)
+
+			if write.options.searchKey != false {
+				if write.options.searchKey != key {
+					continue
+				}
+				out.Println(prefix + value)
+			} else {
+				out.Println(prefix + "/" + key + "/" + value)
+			}
 		}
 	}
 	if write.options.debug {
@@ -228,11 +230,13 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 		write.firstOut = false
 		out.Println("lookup,key,value,path")
 	}
-	for key, value := range result.Links {
-		if write.options.searchKey != false && write.options.searchKey != key {
-			continue
+	for key, values := range result.Links {
+		for _, value := range values {
+			if write.options.searchKey != false && write.options.searchKey != key {
+				continue
+			}
+			out.Println(csv(lookup, key, value, renderPaths(result.Path)))
 		}
-		out.Println(csv(lookup, key, value, renderPaths(result.Path)))
 	}
 	if write.options.debug {
 		for _, logEntry := range result.Log {

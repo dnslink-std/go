@@ -24,8 +24,8 @@ if error != nil {
   panic(error) // An error may occur if the domain can not be found.
 }
 
-// `links` property is a map[string]string containing given links for the different keys
-result.Links["ipfs"] == "QmTg....yomU"
+// `links` property is a map[string][]string containing given links for the different keys, sorted.
+result.Links["ipfs"][0] == "QmTg....yomU"
 
 // The `log` is always an Array and contains a list of log entries
 // that were should help to trace back how the linked data was resolved.

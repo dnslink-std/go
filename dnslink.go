@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 
 	isd "github.com/jbenet/go-is-domain"
@@ -76,9 +77,9 @@ func (url *URLParts) MarshalJSON() ([]byte, error) {
 }
 
 type Result struct {
-	Links map[string]string `json:"links"`
-	Path  []PathEntry       `json:"path"`
-	Log   []LogStatement    `json:"log"`
+	Links map[string][]string `json:"links"`
+	Path  []PathEntry         `json:"path"`
+	Log   []LogStatement      `json:"log"`
 }
 
 type Resolver struct {
@@ -115,7 +116,7 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 		lookupTXT = net.LookupTXT
 	}
 	lookup, error := validateDomain(domain)
-	result.Links = map[string]string{}
+	result.Links = map[string][]string{}
 	result.Path = []PathEntry{}
 	result.Log = []LogStatement{}[:]
 	if lookup == nil {
@@ -247,34 +248,54 @@ func getPathFromLog(log []LogStatement) []PathEntry {
 	return path
 }
 
-func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (links map[string]string, log []LogStatement, redirect *URLParts) {
-	links = make(map[string]string)
+func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (links map[string][]string, log []LogStatement, redirect *URLParts) {
+	links = make(map[string][]string)
 	log = []LogStatement{}[:]
 	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, dnsPrefix) {
 		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}
 	}
 	found, log := processEntries(txtEntries)
-	dns, hasDns := found["dns"]
+	dnsLinks, hasDns := found["dns"]
 	if recursive && hasDns {
-		redirect, error := validateDomain(dns.value)
-		if error != nil {
-			delete(found, "dns")
-			log = append(log, *error)
-		} else {
-			for key, foundEntry := range found {
+		hasRedirect := false
+		var redirect *URLParts
+		for _, dns := range dnsLinks {
+			validated, error := validateDomain(dns.value)
+			if error != nil {
+				delete(found, "dns")
+				log = append(log, *error)
+			} else if !hasRedirect {
+				hasRedirect = true
+				redirect = validated
+			} else {
+				log = append(log, LogStatement{
+					Code:  "UNUSED_ENTRY",
+					Entry: dns.entry,
+				})
+			}
+		}
+		if hasRedirect {
+			for key, foundEntries := range found {
 				if key == "dns" {
 					continue
 				}
-				log = append(log, LogStatement{
-					Code:  "UNUSED_ENTRY",
-					Entry: foundEntry.entry,
-				})
+				for _, foundEntry := range foundEntries {
+					log = append(log, LogStatement{
+						Code:  "UNUSED_ENTRY",
+						Entry: foundEntry.entry,
+					})
+				}
 			}
 			return links, log, redirect
 		}
 	}
-	for key, foundEntry := range found {
-		links[key] = foundEntry.value
+	for key, foundEntries := range found {
+		list := []string{}[:]
+		for _, foundEntry := range foundEntries {
+			list = append(list, foundEntry.value)
+		}
+		sort.Strings(list)
+		links[key] = list
 	}
 	return links, log, nil
 }
@@ -288,9 +309,9 @@ func hasDNSLinkEntry(txtEntries []string) bool {
 	return false
 }
 
-func processEntries(dnslinkEntries []string) (map[string]processedEntry, []LogStatement) {
+func processEntries(dnslinkEntries []string) (map[string][]processedEntry, []LogStatement) {
 	log := []LogStatement{}[:]
-	found := make(map[string]processedEntry)
+	found := make(map[string][]processedEntry)
 	for _, entry := range dnslinkEntries {
 		if !strings.HasPrefix(entry, txtPrefix) {
 			continue
@@ -301,14 +322,12 @@ func processEntries(dnslinkEntries []string) (map[string]processedEntry, []LogSt
 			log = append(log, LogStatement{Code: "INVALID_ENTRY", Entry: entry, Reason: error})
 			continue
 		}
-		prev, hasPrev := found[key]
-		if !hasPrev || strings.Compare(prev.value, value) > 0 {
-			if hasPrev {
-				log = append(log, LogStatement{Code: "CONFLICT_ENTRY", Entry: prev.entry})
-			}
-			found[key] = processedEntry{value, entry}
+		list, hasList := found[key]
+		processed := processedEntry{value, entry}
+		if !hasList {
+			found[key] = []processedEntry{processed}
 		} else {
-			log = append(log, LogStatement{Code: "CONFLICT_ENTRY", Entry: entry})
+			found[key] = append(list, processed)
 		}
 	}
 	return found, log
