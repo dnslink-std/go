@@ -1,12 +1,9 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
-	"time"
 
 	dnslink "github.com/dnslink-std/go"
 )
@@ -22,19 +19,8 @@ func main() {
 	domain := os.Args[1]
 	options := Options{}
 	json.Unmarshal([]byte(os.Args[2]), &options)
-	dns := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Millisecond * time.Duration(10000),
-			}
-			return d.DialContext(ctx, network, "127.0.0.1:"+fmt.Sprint(options.Udp))
-		},
-	}
 	r := &dnslink.Resolver{
-		LookupTXT: func(name string) (txt []string, err error) {
-			return dns.LookupTXT(context.Background(), name)
-		},
+		LookupTXT: dnslink.NewUDPLookup([]string{"127.0.0.1:" + fmt.Sprint(options.Udp)}),
 	}
 
 	resolved, error := r.ResolveN(domain)

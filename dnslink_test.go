@@ -12,12 +12,19 @@ type mockDNS struct {
 	entries map[string][]string
 }
 
-func (m *mockDNS) lookupTXT(name string) (txt []string, err error) {
+func (m *mockDNS) lookupTXT(name string) (res []LookupEntry, err error) {
 	txt, ok := m.entries[name]
 	if !ok {
 		return nil, fmt.Errorf("No TXT entry for %s", name)
 	}
-	return txt, nil
+	res = make([]LookupEntry, len(txt))
+	for index, entry := range txt {
+		res[index] = LookupEntry{
+			Value: entry,
+			Ttl:   100,
+		}
+	}
+	return res, nil
 }
 
 func newMockDNS() *mockDNS {
@@ -94,45 +101,89 @@ func TestValidateDNSLinkEntry(t *testing.T) {
 }
 
 func TestProcessEntries(t *testing.T) {
-	assertResult(t, arr(processEntries([]string{})), map[string][]processedEntry{}, []LogStatement{})
-	assertResult(t, arr(processEntries([]string{"foo", "dnslink="})), map[string][]processedEntry{}, []LogStatement{
-		{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
-	})
-	assertResult(t, arr(processEntries([]string{"dnslink=/foo/bar"})), map[string][]processedEntry{"foo": {
-		{value: "bar", entry: "dnslink=/foo/bar"},
-	}}, []LogStatement{})
-	assertResult(t, arr(processEntries([]string{"dnslink=/foo/bar", "dnslink=/foo/baz"})), map[string][]processedEntry{"foo": {
-		{value: "bar", entry: "dnslink=/foo/bar"},
-		{value: "baz", entry: "dnslink=/foo/baz"},
-	}}, []LogStatement{})
-	assertResult(t, arr(processEntries([]string{"dnslink=/foo/bar", "dnslink=/foo/baz"})), map[string][]processedEntry{"foo": {
-		{value: "bar", entry: "dnslink=/foo/bar"},
-		{value: "baz", entry: "dnslink=/foo/baz"},
-	}}, []LogStatement{})
+	assertResult(t, arr(processEntries([]LookupEntry{})), map[string][]processedEntry{}, []LogStatement{})
+	assertResult(t,
+		arr(processEntries([]LookupEntry{
+			{Value: "foo", Ttl: 100},
+			{Value: "dnslink=", Ttl: 100},
+		})),
+		map[string][]processedEntry{}, []LogStatement{
+			{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
+		})
+	assertResult(t,
+		arr(processEntries([]LookupEntry{
+			{Value: "dnslink=/foo/bar", Ttl: 100},
+		})),
+		map[string][]processedEntry{"foo": {
+			{value: "bar", entry: "dnslink=/foo/bar"},
+		}}, []LogStatement{})
+	assertResult(t,
+		arr(processEntries([]LookupEntry{
+			{Value: "dnslink=/foo/bar", Ttl: 100},
+			{Value: "dnslink=/foo/baz", Ttl: 100},
+		})),
+		map[string][]processedEntry{"foo": {
+			{value: "bar", entry: "dnslink=/foo/bar"},
+			{value: "baz", entry: "dnslink=/foo/baz"},
+		}}, []LogStatement{})
+	assertResult(t,
+		arr(processEntries([]LookupEntry{
+			{Value: "dnslink=/foo/bar", Ttl: 100},
+			{Value: "dnslink=/foo/baz", Ttl: 100},
+		})),
+		map[string][]processedEntry{"foo": {
+			{value: "bar", entry: "dnslink=/foo/bar"},
+			{value: "baz", entry: "dnslink=/foo/baz"},
+		}}, []LogStatement{})
 }
 
 func TestResolveTxtEntries(t *testing.T) {
 	var partsNil *URLParts = nil
-	assertResult(t, arr(resolveTxtEntries("domain.com", true, []string{})), map[string][]string{}, []LogStatement{}, partsNil)
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{})), map[string][]string{}, []LogStatement{}, &URLParts{Domain: "domain.com"})
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{"foo"})), map[string][]string{}, []LogStatement{}, &URLParts{Domain: "domain.com"})
-	assertResult(t, arr(resolveTxtEntries("domain.com", true, []string{"dnslink="})), map[string][]string{}, []LogStatement{
-		{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
-	}, partsNil)
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{"dnslink=/foo/bar"})), map[string][]string{"foo": {"bar"}}, []LogStatement{}, partsNil)
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{"dnslink=/dns/domain-b.com"})), map[string][]string{}, []LogStatement{}, &URLParts{
-		Domain: "_dnslink.domain-b.com",
-		Search: make(map[string][]string),
-	})
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{"dnslink=/dns/domain b.com"})), map[string][]string{}, []LogStatement{
-		{Code: "INVALID_REDIRECT", Domain: "domain b.com", Search: make(map[string][]string)},
-	}, partsNil)
-	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []string{"dnslink=/dns/domain-b.com", "dnslink=/foo/bar"})), map[string][]string{}, []LogStatement{
-		{Code: "UNUSED_ENTRY", Entry: "dnslink=/foo/bar"},
-	}, &URLParts{
-		Domain: "_dnslink.domain-b.com",
-		Search: make(map[string][]string),
-	})
+	assertResult(t, arr(resolveTxtEntries("domain.com", true, []LookupEntry{})), map[string][]string{}, []LogStatement{}, partsNil)
+	assertResult(t, arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{})), map[string][]string{}, []LogStatement{}, &URLParts{Domain: "domain.com"})
+	assertResult(t,
+		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
+			{Value: "foo", Ttl: 100},
+		})),
+		map[string][]string{}, []LogStatement{}, &URLParts{Domain: "domain.com"})
+	assertResult(t,
+		arr(resolveTxtEntries("domain.com", true, []LookupEntry{
+			{Value: "dnslink=", Ttl: 100},
+		})),
+		map[string][]string{}, []LogStatement{
+			{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
+		}, partsNil)
+	assertResult(t,
+		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
+			{Value: "dnslink=/foo/bar", Ttl: 100},
+		})),
+		map[string][]string{"foo": {"bar"}}, []LogStatement{}, partsNil)
+	assertResult(t,
+		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
+			{Value: "dnslink=/dns/domain-b.com", Ttl: 100},
+		})),
+		map[string][]string{}, []LogStatement{}, &URLParts{
+			Domain: "_dnslink.domain-b.com",
+			Search: make(map[string][]string),
+		})
+	assertResult(t,
+		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
+			{Value: "dnslink=/dns/domain b.com", Ttl: 100},
+		})),
+		map[string][]string{}, []LogStatement{
+			{Code: "INVALID_REDIRECT", Domain: "domain b.com", Search: make(map[string][]string)},
+		}, partsNil)
+	assertResult(t,
+		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
+			{Value: "dnslink=/dns/domain-b.com", Ttl: 100},
+			{Value: "dnslink=/foo/bar", Ttl: 100},
+		})),
+		map[string][]string{}, []LogStatement{
+			{Code: "UNUSED_ENTRY", Entry: "dnslink=/foo/bar"},
+		}, &URLParts{
+			Domain: "_dnslink.domain-b.com",
+			Search: make(map[string][]string),
+		})
 }
 
 func TestGetPathFromLog(t *testing.T) {
@@ -157,8 +208,10 @@ func TestDnsLinkN(t *testing.T) {
 	r := &Resolver{LookupTXT: mock.lookupTXT}
 	result := arr(r.ResolveN("ipfs.example.com"))
 	assertResult(t, result, Result{
-		Links: map[string][]string{
-			"ipfs": {"QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD"},
+		Links: map[string][]LookupEntry{
+			"ipfs": {
+				{Value: "QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD"},
+			},
 		},
 		Path: []PathEntry{},
 		Log: []LogStatement{
@@ -166,6 +219,16 @@ func TestDnsLinkN(t *testing.T) {
 			{Code: "RESOLVE", Domain: "ipfs.example.com"},
 		},
 	}, nil)
+}
+
+func TestUDPLookup(t *testing.T) {
+	lookup := NewUDPLookup([]string{"1.1.1.1:53"})
+	txt, error := lookup("_dnslink.t05.dnslink.dev")
+	assert.NoError(t, error)
+	assert.Equal(t, len(txt), 2)
+	assert.Equal(t, txt[0].Value, "dnslink=/ipfs/")
+	assert.Equal(t, txt[1].Value, "dnslink=/ipfs/MNOP")
+	assert.InDelta(t, txt[0].Ttl, 1800, 1802) // 0 ~ 3600 + margin
 }
 
 func arr(input ...interface{}) []interface{} {

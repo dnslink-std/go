@@ -1,16 +1,12 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
-	"net"
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	dnslink "github.com/dnslink-std/go"
 )
@@ -142,9 +138,11 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 		prefix = lookup + ": "
 	}
 	for key, values := range result.Links {
-		for _, value := range values {
+		for _, entry := range values {
+			value := entry.Value
+			value += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
 			for _, part := range result.Path {
-				value += " [" + renderPath(part) + "]"
+				value += " [path=" + renderPath(part) + "]"
 			}
 
 			if write.options.searchKey != false {
@@ -228,14 +226,14 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 	err := write.options.err
 	if write.firstOut {
 		write.firstOut = false
-		out.Println("lookup,key,value,path")
+		out.Println("lookup,key,value,ttl,path")
 	}
 	for key, values := range result.Links {
 		for _, value := range values {
 			if write.options.searchKey != false && write.options.searchKey != key {
 				continue
 			}
-			out.Println(csv(lookup, key, value, renderPaths(result.Path)))
+			out.Println(csv(lookup, key, value.Value, value.Ttl, renderPaths(result.Path)))
 		}
 	}
 	if write.options.debug {
@@ -256,6 +254,7 @@ func csv(rest ...interface{}) string {
 		value := ""
 		switch v := entry.(type) {
 		case int:
+		case uint32:
 			value = fmt.Sprint(v)
 		case bool:
 			if v {
@@ -322,7 +321,7 @@ func main() {
 	}
 	resolver := dnslink.Resolver{}
 	if options.has("dns") {
-		resolver.LookupTXT = getLookup(options.get("dns"))
+		resolver.LookupTXT = dnslink.NewUDPLookup(getServers(options.get("dns")))
 	}
 	for _, lookup := range lookups {
 		var result dnslink.Result
@@ -338,23 +337,6 @@ func main() {
 		output.write(lookup, result)
 	}
 	output.end()
-}
-
-func getLookup(raw []interface{}) dnslink.LookupTXTFunc {
-	servers := getServers(raw)
-	dns := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Millisecond * time.Duration(10000),
-			}
-			server := servers[rand.Intn(len(servers))]
-			return d.DialContext(ctx, network, server)
-		},
-	}
-	return func(domain string) (txt []string, err error) {
-		return dns.LookupTXT(context.Background(), domain)
-	}
 }
 
 func getServers(raw []interface{}) []string {

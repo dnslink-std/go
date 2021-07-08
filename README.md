@@ -46,20 +46,8 @@ import {
   "time"
 }
 
-const dnsServerAddress = "1.1.1.1:53"
-dns := &net.Resolver{
-  PreferGo: true,
-  Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-    d := net.Dialer{
-      Timeout: time.Millisecond * time.Duration(10000),
-    }
-    return d.DialContext(ctx, network, dnsServerAddress)
-  },
-}
 resolver := &dnslink.Resolver{
-  LookupTXT: func(name string) (txt []string, err error) {
-    return dns.LookupTXT(context.Background(), name)
-  },
+  LookupTXT: NewUDPLookup("1.1.1.1:53"),
 }
 
 // The resolver will now use googles 1.1.1.1 dns server.

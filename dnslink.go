@@ -1,13 +1,16 @@
 package dnslink
 
 import (
+	"context"
 	"encoding/json"
+	"math/rand"
 	"net"
 	"net/url"
 	"sort"
 	"strings"
 
 	isd "github.com/jbenet/go-is-domain"
+	dns "github.com/miekg/dns"
 )
 
 type PathEntry struct {
@@ -77,9 +80,9 @@ func (url *URLParts) MarshalJSON() ([]byte, error) {
 }
 
 type Result struct {
-	Links map[string][]string `json:"links"`
-	Path  []PathEntry         `json:"path"`
-	Log   []LogStatement      `json:"log"`
+	Links map[string][]LookupEntry `json:"links"`
+	Path  []PathEntry              `json:"path"`
+	Log   []LogStatement           `json:"log"`
 }
 
 type Resolver struct {
@@ -94,7 +97,54 @@ func (r *Resolver) ResolveN(domain string) (Result, error) {
 	return resolve(r, domain, true)
 }
 
-type LookupTXTFunc func(name string) (txt []string, err error)
+type LookupEntry struct {
+	Value string `json:"value"`
+	Ttl   uint32 `json:"ttl"`
+}
+type LookupEntries []LookupEntry
+
+func (l LookupEntries) Len() int      { return len(l) }
+func (l LookupEntries) Swap(i, j int) { l[i], l[j] = l[j], l[i] }
+
+type ByValue struct{ LookupEntries }
+
+func (s ByValue) Less(i, j int) bool { return s.LookupEntries[i].Value < s.LookupEntries[j].Value }
+
+type LookupTXTFunc func(name string) (txt []LookupEntry, err error)
+
+func NewUDPLookup(servers []string) LookupTXTFunc {
+	return func(domain string) (entries []LookupEntry, err error) {
+		if !strings.HasSuffix(domain, ".") {
+			domain += "."
+		}
+		req := new(dns.Msg)
+		req.Id = dns.Id()
+		req.RecursionDesired = true
+		req.Question = make([]dns.Question, 1)
+		req.Question[0] = dns.Question{
+			Name:   domain,
+			Qtype:  dns.TypeTXT,
+			Qclass: dns.ClassINET,
+		}
+		server := servers[rand.Intn(len(servers))]
+		res, err := dns.Exchange(req, server)
+		if err != nil {
+			return nil, err
+		}
+		entries = make([]LookupEntry, len(res.Answer))
+		for index, answer := range res.Answer {
+			if answer.Header().Rrtype == dns.TypeTXT {
+				txtAnswer := answer.(*dns.TXT)
+				entries[index] = LookupEntry{
+					Value: strings.Join(txtAnswer.Txt, ""),
+					Ttl:   txtAnswer.Header().Ttl,
+				}
+			}
+		}
+		sort.Sort(ByValue{entries})
+		return entries, nil
+	}
+}
 
 const Version = "v0.0.1"
 const dnsPrefix = "_dnslink."
@@ -110,13 +160,33 @@ func ResolveN(domain string) (Result, error) {
 	return defaultResolver.ResolveN(domain)
 }
 
+func wrapLookup(r *net.Resolver, ttl uint32) LookupTXTFunc {
+	return func(domain string) (res []LookupEntry, err error) {
+		txt, err := r.LookupTXT(context.Background(), domain)
+		if err != nil {
+			return nil, err
+		}
+		res = make([]LookupEntry, len(txt))
+		for index, txt := range txt {
+			res[index] = LookupEntry{
+				Value: txt,
+				// net.LookupTXT doesn't support ttl :-(
+				Ttl: ttl,
+			}
+		}
+		return res, nil
+	}
+}
+
+var defaultLookupTXT = wrapLookup(net.DefaultResolver, 0)
+
 func resolve(r *Resolver, domain string, recursive bool) (result Result, err error) {
 	lookupTXT := r.LookupTXT
 	if lookupTXT == nil {
-		lookupTXT = net.LookupTXT
+		lookupTXT = defaultLookupTXT
 	}
 	lookup, error := validateDomain(domain)
-	result.Links = map[string][]string{}
+	result.Links = map[string][]LookupEntry{}
 	result.Path = []PathEntry{}
 	result.Log = []LogStatement{}[:]
 	if lookup == nil {
@@ -189,6 +259,7 @@ func validateDomain(input string) (*URLParts, *LogStatement) {
 type processedEntry struct {
 	value string
 	entry string
+	ttl   uint32
 }
 
 func relevantURLParts(input string) URLParts {
@@ -248,8 +319,8 @@ func getPathFromLog(log []LogStatement) []PathEntry {
 	return path
 }
 
-func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (links map[string][]string, log []LogStatement, redirect *URLParts) {
-	links = make(map[string][]string)
+func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) (links map[string][]LookupEntry, log []LogStatement, redirect *URLParts) {
+	links = make(map[string][]LookupEntry)
 	log = []LogStatement{}[:]
 	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, dnsPrefix) {
 		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}
@@ -290,40 +361,43 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []string) (link
 		}
 	}
 	for key, foundEntries := range found {
-		list := []string{}[:]
+		list := []LookupEntry{}[:]
 		for _, foundEntry := range foundEntries {
-			list = append(list, foundEntry.value)
+			list = append(list, LookupEntry{
+				Value: foundEntry.value,
+				Ttl:   foundEntry.ttl,
+			})
 		}
-		sort.Strings(list)
+		sort.Sort(ByValue{list})
 		links[key] = list
 	}
 	return links, log, nil
 }
 
-func hasDNSLinkEntry(txtEntries []string) bool {
+func hasDNSLinkEntry(txtEntries []LookupEntry) bool {
 	for _, txtEntry := range txtEntries {
-		if strings.HasPrefix(txtEntry, txtPrefix) {
+		if strings.HasPrefix(txtEntry.Value, txtPrefix) {
 			return true
 		}
 	}
 	return false
 }
 
-func processEntries(dnslinkEntries []string) (map[string][]processedEntry, []LogStatement) {
+func processEntries(dnslinkEntries []LookupEntry) (map[string][]processedEntry, []LogStatement) {
 	log := []LogStatement{}[:]
 	found := make(map[string][]processedEntry)
 	for _, entry := range dnslinkEntries {
-		if !strings.HasPrefix(entry, txtPrefix) {
+		if !strings.HasPrefix(entry.Value, txtPrefix) {
 			continue
 		}
-		key, value, error := validateDNSLinkEntry(entry)
+		key, value, error := validateDNSLinkEntry(entry.Value)
 
 		if error != "" {
-			log = append(log, LogStatement{Code: "INVALID_ENTRY", Entry: entry, Reason: error})
+			log = append(log, LogStatement{Code: "INVALID_ENTRY", Entry: entry.Value, Reason: error})
 			continue
 		}
 		list, hasList := found[key]
-		processed := processedEntry{value, entry}
+		processed := processedEntry{value, entry.Value, entry.Ttl}
 		if !hasList {
 			found[key] = []processedEntry{processed}
 		} else {
