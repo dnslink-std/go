@@ -47,7 +47,7 @@ import {
 }
 
 resolver := &dnslink.Resolver{
-  LookupTXT: NewUDPLookup("1.1.1.1:53"),
+  LookupTXT: dnslink.NewUDPLookup("1.1.1.1:53"),
 }
 
 // The resolver will now use googles 1.1.1.1 dns server.
@@ -77,7 +77,7 @@ each containing their contribution to the path.
 | RECURSIVE_DNSLINK_PREFIX | The hostname requested contains multiple `_dnslink` prefixes.        |                                     |
 | UNUSED_ENTRY             | An entry is unused because a redirect overrides it.                  | `.entry`                            |
 | ENDLESS_REDIRECT         | Endless DNSLink redirects detected.                                  | `.domain`, (`.pathname`, `.search`) |
-| INVALID_REDIRECT         | A given redirect is of invalid format.                               | `.domain`, (`.pathname`, `.search`) |
+| INVALID_REDIRECT         | A given redirect is of invalid format.                               | `.entry`                            |
 | TOO_MANY_REDIRECTS       | Too many redirects happend. (max=32 per dnslink spec)                | `.domain`, (`.pathname`, `.search`) |
 
 ## Command Line
