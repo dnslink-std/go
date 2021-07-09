@@ -6,10 +6,11 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
-	isd "github.com/jbenet/go-is-domain"
 	dns "github.com/miekg/dns"
 )
 
@@ -112,7 +113,28 @@ func (s ByValue) Less(i, j int) bool { return s.LookupEntries[i].Value < s.Looku
 
 type LookupTXTFunc func(name string) (txt []LookupEntry, err error)
 
-func NewUDPLookup(servers []string) LookupTXTFunc {
+var utf8Replace = regexp.MustCompile(`\\\d{3}`)
+
+func utf8ReplaceFunc(input []byte) (result []byte) {
+	result = make([]byte, 1)
+	num, _ := strconv.ParseUint(string(input[1:]), 10, 9)
+	result[0] = byte(num)
+	return result
+}
+
+func utf8Value(input []string) string {
+	str := strings.Join(input, "")
+	return string(utf8Replace.ReplaceAllFunc([]byte(str), utf8ReplaceFunc))
+}
+
+func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
+	client := new(dns.Client)
+	if udpSize == 0 {
+		// Running into issues with too small buffer size of dns library in some cases
+		client.UDPSize = 4096
+	} else {
+		client.UDPSize = udpSize
+	}
 	return func(domain string) (entries []LookupEntry, err error) {
 		if !strings.HasSuffix(domain, ".") {
 			domain += "."
@@ -127,7 +149,7 @@ func NewUDPLookup(servers []string) LookupTXTFunc {
 			Qclass: dns.ClassINET,
 		}
 		server := servers[rand.Intn(len(servers))]
-		res, err := dns.Exchange(req, server)
+		res, _, err := client.Exchange(req, server)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +158,7 @@ func NewUDPLookup(servers []string) LookupTXTFunc {
 			if answer.Header().Rrtype == dns.TypeTXT {
 				txtAnswer := answer.(*dns.TXT)
 				entries[index] = LookupEntry{
-					Value: strings.Join(txtAnswer.Txt, ""),
+					Value: utf8Value(txtAnswer.Txt),
 					Ttl:   txtAnswer.Header().Ttl,
 				}
 			}
@@ -185,11 +207,11 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 	if lookupTXT == nil {
 		lookupTXT = defaultLookupTXT
 	}
-	lookup, error := validateDomain(domain)
+	lookup, error := validateDomain(domain, "")
 	result.Links = map[string][]LookupEntry{}
 	result.Path = []PathEntry{}
 	result.Log = []LogStatement{}[:]
-	if lookup == nil {
+	if error != nil {
 		result.Log = append(result.Log, *error)
 		return result, nil
 	}
@@ -225,7 +247,7 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 	}
 }
 
-func validateDomain(input string) (*URLParts, *LogStatement) {
+func validateDomain(input string, entry string) (*URLParts, *LogStatement) {
 	urlParts := relevantURLParts(input)
 	domain := urlParts.Domain
 	if strings.HasPrefix(domain, dnsPrefix) {
@@ -241,19 +263,83 @@ func validateDomain(input string) (*URLParts, *LogStatement) {
 			}
 		}
 	}
-	if !isd.IsDomain(domain) {
+	if !isFqdn(domain) {
 		return nil, &LogStatement{
-			Code:     "INVALID_REDIRECT",
-			Domain:   urlParts.Domain,
-			Pathname: urlParts.Pathname,
-			Search:   urlParts.Search,
+			Code:  "INVALID_REDIRECT",
+			Entry: entry,
 		}
 	}
+	domain = strings.TrimSuffix(domain, ".")
 	return &URLParts{
 		Domain:   dnsPrefix + domain,
 		Pathname: urlParts.Pathname,
 		Search:   urlParts.Search,
 	}, nil
+}
+
+var intlDomainCharset = regexp.MustCompile("^([a-z\u00a1-\uffff]{2,}|xn[a-z0-9-]{2,})$")
+var spacesAndSpecialChars = regexp.MustCompile("[\\s\u2002-\u200B\u202F\u205F\u3000��\u00A9\uFFFD\uFEFF]")
+var domainCharset = regexp.MustCompile("^[a-z\u00a1-\u00ff0-9-]+$")
+
+func isFqdn(str string) bool {
+	str = strings.TrimSuffix(str, ".")
+	if str == "" {
+		return false
+	}
+	parts := strings.Split(str, ".")
+	tld := parts[len(parts)-1]
+
+	// disallow fqdns without tld
+	if len(parts) < 2 {
+		return false
+	}
+
+	if !intlDomainCharset.MatchString(tld) {
+		return false
+	}
+
+	// disallow spaces && special characers
+	if spacesAndSpecialChars.MatchString(tld) {
+		return false
+	}
+
+	// disallow all numbers
+	if every(parts, isNumber) {
+		return false
+	}
+
+	return every(parts, isDomainPart)
+}
+
+func isDomainPart(part string) bool {
+	if len(part) > 63 {
+		return false
+	}
+
+	if !domainCharset.MatchString(part) {
+		return false
+	}
+
+	// disallow parts starting or ending with hyphen
+	if strings.HasPrefix(part, "-") || strings.HasSuffix(part, "-") {
+		return false
+	}
+
+	return true
+}
+
+func isNumber(str string) bool {
+	_, err := strconv.Atoi(str)
+	return err == nil
+}
+
+func every(strings []string, test func(string) bool) bool {
+	for _, str := range strings {
+		if !test(str) {
+			return false
+		}
+	}
+	return true
 }
 
 type processedEntry struct {
@@ -331,9 +417,8 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 		hasRedirect := false
 		var redirect *URLParts
 		for _, dns := range dnsLinks {
-			validated, error := validateDomain(dns.value)
+			validated, error := validateDomain(dns.value, dns.entry)
 			if error != nil {
-				delete(found, "dns")
 				log = append(log, *error)
 			} else if !hasRedirect {
 				hasRedirect = true
@@ -345,11 +430,9 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 				})
 			}
 		}
+		delete(found, "dns")
 		if hasRedirect {
-			for key, foundEntries := range found {
-				if key == "dns" {
-					continue
-				}
+			for _, foundEntries := range found {
 				for _, foundEntry := range foundEntries {
 					log = append(log, LogStatement{
 						Code:  "UNUSED_ENTRY",

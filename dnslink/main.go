@@ -321,7 +321,7 @@ func main() {
 	}
 	resolver := dnslink.Resolver{}
 	if options.has("dns") {
-		resolver.LookupTXT = dnslink.NewUDPLookup(getServers(options.get("dns")))
+		resolver.LookupTXT = dnslink.NewUDPLookup(getServers(options.get("dns")), 0)
 	}
 	for _, lookup := range lookups {
 		var result dnslink.Result

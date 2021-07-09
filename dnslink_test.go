@@ -73,19 +73,19 @@ func TestRelevantURLParts(t *testing.T) {
 func TestValidateDomain(t *testing.T) {
 	var logNil *LogStatement = nil
 	var partsNil *URLParts = nil
-	assertResult(t, arr(validateDomain("hello.com")),
+	assertResult(t, arr(validateDomain("hello.com", "")),
 		&URLParts{Domain: "_dnslink.hello.com", Pathname: "", Search: make(map[string][]string)},
 		logNil,
 	)
-	assertResult(t, arr(validateDomain("_dnslink.hello.com/foo?bar=baz")),
+	assertResult(t, arr(validateDomain("_dnslink.hello.com/foo?bar=baz", "")),
 		&URLParts{Domain: "_dnslink.hello.com", Pathname: "/foo", Search: map[string][]string{"bar": {"baz"}}},
 		logNil,
 	)
-	assertResult(t, arr(validateDomain("hello .com")),
+	assertResult(t, arr(validateDomain("hello .com", "dnslink=/dns/hello .com/foo")),
 		partsNil,
-		&LogStatement{Code: "INVALID_REDIRECT", Domain: "hello .com", Pathname: "", Search: make(map[string][]string)},
+		&LogStatement{Code: "INVALID_REDIRECT", Entry: "dnslink=/dns/hello .com/foo"},
 	)
-	assertResult(t, arr(validateDomain("_dnslink._dnslink.hello.com")),
+	assertResult(t, arr(validateDomain("_dnslink._dnslink.hello.com", "")),
 		partsNil,
 		&LogStatement{Code: "RECURSIVE_DNSLINK_PREFIX", Domain: "_dnslink._dnslink.hello.com", Pathname: "", Search: make(map[string][]string)},
 	)
@@ -222,7 +222,7 @@ func TestDnsLinkN(t *testing.T) {
 }
 
 func TestUDPLookup(t *testing.T) {
-	lookup := NewUDPLookup([]string{"1.1.1.1:53"})
+	lookup := NewUDPLookup([]string{"1.1.1.1:53"}, 0)
 	txt, error := lookup("_dnslink.t05.dnslink.dev")
 	assert.NoError(t, error)
 	assert.Equal(t, len(txt), 2)
