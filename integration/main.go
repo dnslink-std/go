@@ -46,5 +46,5 @@ func exitWithError(input error) {
 		panic(err)
 	}
 	fmt.Print(string(result))
-	os.Exit(1)
+	os.Exit(0)
 }

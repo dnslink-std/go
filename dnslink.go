@@ -39,6 +39,10 @@ type LogStatement struct {
 	Search   map[string][]string
 }
 
+func (l *LogStatement) Error() string {
+	return l.Code
+}
+
 func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
 	out := map[string]interface{}{
 		"code": stmt.Code,
@@ -212,8 +216,7 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 	result.Path = []PathEntry{}
 	result.Log = []LogStatement{}[:]
 	if error != nil {
-		result.Log = append(result.Log, *error)
-		return result, nil
+		return result, error
 	}
 	chain := make(map[string]bool)
 	for {
