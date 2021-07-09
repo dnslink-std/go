@@ -415,7 +415,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}
 	}
 	found, log := processEntries(txtEntries)
-	dnsLinks, hasDns := found["dns"]
+	dnsLinks, hasDns := found["dnslink"]
 	if recursive && hasDns {
 		hasRedirect := false
 		var redirect *URLParts
@@ -433,7 +433,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 				})
 			}
 		}
-		delete(found, "dns")
+		delete(found, "dnslink")
 		if hasRedirect {
 			for _, foundEntries := range found {
 				for _, foundEntry := range foundEntries {

@@ -30,20 +30,20 @@ func (m *mockDNS) lookupTXT(name string) (res []LookupEntry, err error) {
 func newMockDNS() *mockDNS {
 	return &mockDNS{
 		entries: map[string][]string{
-			"foo.com":            {"dnslink=/dns/bar.com/foo/f/o/o"},
-			"bar.com":            {"dnslink=/dns/test.it.baz.com/bar/b/a/r"},
+			"foo.com":            {"dnslink=/dnslink/bar.com/foo/f/o/o"},
+			"bar.com":            {"dnslink=/dnslink/test.it.baz.com/bar/b/a/r"},
 			"test.it.baz.com":    {"dnslink=/baz/b/a/z"},
 			"ipfs.example.com":   {"dnslink=/ipfs/QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD"},
-			"dns1.example.com":   {"dnslink=/dns/ipfs.example.com"},
-			"dns2.example.com":   {"dnslink=/dns/dns1.example.com"},
+			"dns1.example.com":   {"dnslink=/dnslink/ipfs.example.com"},
+			"dns2.example.com":   {"dnslink=/dnslink/dns1.example.com"},
 			"equals.example.com": {"dnslink=/ipfs/QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD/=equals"},
-			"loop1.example.com":  {"dnslink=/dns/loop2.example.com"},
-			"loop2.example.com":  {"dnslink=/dns/loop1.example.com"},
+			"loop1.example.com":  {"dnslink=/dnslink/loop2.example.com"},
+			"loop2.example.com":  {"dnslink=/dnslink/loop1.example.com"},
 			"bad.example.com":    {"dnslink="},
 			"multi.example.com": {
 				"some stuff",
-				"dnslink=/dns/dns1.example.com",
-				"masked dnslink=/dns/example.invalid",
+				"dnslink=/dnslink/dns1.example.com",
+				"masked dnslink=/dnslink/example.invalid",
 			},
 		},
 	}
@@ -81,9 +81,9 @@ func TestValidateDomain(t *testing.T) {
 		&URLParts{Domain: "_dnslink.hello.com", Pathname: "/foo", Search: map[string][]string{"bar": {"baz"}}},
 		logNil,
 	)
-	assertResult(t, arr(validateDomain("hello .com", "dnslink=/dns/hello .com/foo")),
+	assertResult(t, arr(validateDomain("hello .com", "dnslink=/dnslink/hello .com/foo")),
 		partsNil,
-		&LogStatement{Code: "INVALID_REDIRECT", Entry: "dnslink=/dns/hello .com/foo"},
+		&LogStatement{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/hello .com/foo"},
 	)
 	assertResult(t, arr(validateDomain("_dnslink._dnslink.hello.com", "")),
 		partsNil,
@@ -164,7 +164,7 @@ func TestResolveTxtEntries(t *testing.T) {
 		}, []LogStatement{}, partsNil)
 	assertResult(t,
 		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
-			{Value: "dnslink=/dns/domain-b.com", Ttl: 100},
+			{Value: "dnslink=/dnslink/domain-b.com", Ttl: 100},
 		})),
 		map[string][]LookupEntry{}, []LogStatement{}, &URLParts{
 			Domain: "_dnslink.domain-b.com",
@@ -172,14 +172,14 @@ func TestResolveTxtEntries(t *testing.T) {
 		})
 	assertResult(t,
 		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
-			{Value: "dnslink=/dns/domain b.com", Ttl: 100},
+			{Value: "dnslink=/dnslink/domain b.com", Ttl: 100},
 		})),
 		map[string][]LookupEntry{}, []LogStatement{
-			{Code: "INVALID_REDIRECT", Entry: "dnslink=/dns/domain b.com"},
+			{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/domain b.com"},
 		}, partsNil)
 	assertResult(t,
 		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
-			{Value: "dnslink=/dns/domain-b.com", Ttl: 100},
+			{Value: "dnslink=/dnslink/domain-b.com", Ttl: 100},
 			{Value: "dnslink=/foo/bar", Ttl: 100},
 		})),
 		map[string][]LookupEntry{}, []LogStatement{
