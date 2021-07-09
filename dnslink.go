@@ -172,7 +172,7 @@ func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
 	}
 }
 
-const Version = "v0.0.1"
+const Version = "v0.1.1"
 const dnsPrefix = "_dnslink."
 const txtPrefix = "dnslink="
 
