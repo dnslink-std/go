@@ -326,10 +326,10 @@ func main() {
 	for _, lookup := range lookups {
 		var result dnslink.Result
 		var error error
-		if options.has("r", "recursive") {
-			result, error = resolver.ResolveN(lookup)
-		} else {
+		if options.has("nr", "non-recursive") {
 			result, error = resolver.Resolve(lookup)
+		} else {
+			result, error = resolver.ResolveN(lookup)
 		}
 		if error != nil {
 			panic(error)
@@ -355,12 +355,12 @@ func showHelp(command string) int {
 
 USAGE
     ` + command + ` [--help] [--format=json|text|csv] [--key=<key>] [--debug] \\
-        [--dns=server] [--recursive] \\
+        [--dns=server] [--non-recursive] \\
         <hostname> [...<hostname>]
 
 EXAMPLE
     # Recursively receive the dnslink entries for the dnslink.io domain.
-    > ` + command + ` -r dnslink.io
+    > ` + command + ` dnslink.io
     /ipfs/QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
 
     # Receive only the ipfs entry as text for dnslink.io
@@ -386,15 +386,15 @@ EXAMPLE
         2>dnslink-io.log.csv
 
 OPTIONS
-    --help, -h        Show this help.
-    --version, -v     Show the version of this command.
-    --format, -f      Output format json, text or csv (default=json)
-    --dns=<server>    Specify a dns server to use. If you don't specify a
-                      server it will use the system dns service. As server you
-                      can specify a domain with port: 1.1.1.1:53
-    --debug, -d       Render log output to stderr in the specified format.
-    --key, -k         Only render one particular dnslink key.
-    --recursive, -r   Lookup recursive dnslink entries.
+    --help, -h             Show this help.
+    --version, -v          Show the version of this command.
+    --format, -f           Output format json, text or csv (default=json)
+    --dns=<server>         Specify a dns server to use. If you don't specify a
+                           server it will use the system dns service. As server you
+                           can specify a domain with port: 1.1.1.1:53
+    --debug, -d            Render log output to stderr in the specified format.
+    --key, -k              Only render one particular dnslink key.
+    --non-recursive, -nr   Prevent Lookup of recursive dnslink entries.
 
     Read more about it here: https://github.com/dnslink-std/go
 
