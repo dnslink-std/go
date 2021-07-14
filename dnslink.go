@@ -289,6 +289,9 @@ func wrapLookup(r *net.Resolver, ttl uint32) LookupTXTFunc {
 	return func(domain string) (res []LookupEntry, err error) {
 		txt, err := r.LookupTXT(context.Background(), domain)
 		if err != nil {
+			if strings.Contains(err.Error(), "no such host") {
+				err = NewRCodeError(3, domain)
+			}
 			return nil, err
 		}
 		res = make([]LookupEntry, len(txt))
