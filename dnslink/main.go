@@ -15,6 +15,7 @@ type WriteOptions struct {
 	debug     bool
 	err       *log.Logger
 	out       *log.Logger
+	firstKey  interface{}
 	searchKey interface{}
 }
 
@@ -137,6 +138,9 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 		prefix = lookup + ": "
 	}
 	for key, values := range result.Links {
+		if write.options.searchKey != false && write.options.searchKey != key {
+			continue
+		}
 		for _, entry := range values {
 			value := entry.Value
 			value += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
@@ -151,6 +155,9 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 				out.Println(prefix + value)
 			} else {
 				out.Println(prefix + "/" + key + "/" + value)
+			}
+			if write.options.firstKey != false {
+				break
 			}
 		}
 	}
@@ -215,6 +222,9 @@ func (write *WriteReduced) write(lookup string, result dnslink.Result) {
 			} else {
 				out.Println(prefix + "/" + key + "/" + valueStr)
 			}
+			if write.options.firstKey != false {
+				break
+			}
 		}
 	}
 	if write.options.debug {
@@ -261,11 +271,14 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 		out.Println("lookup,key,value,ttl,path")
 	}
 	for key, values := range result.Links {
+		if write.options.searchKey != false && write.options.searchKey != key {
+			continue
+		}
 		for _, value := range values {
-			if write.options.searchKey != false && write.options.searchKey != key {
-				continue
-			}
 			out.Println(csv(lookup, key, value.Value, value.Ttl, renderPaths(result.Path)))
+			if write.options.firstKey != false {
+				break
+			}
 		}
 	}
 	if write.options.debug {
@@ -338,7 +351,8 @@ func main() {
 	}
 	writeOpts := WriteOptions{
 		domains:   lookups,
-		searchKey: options.first("key", "k"),
+		firstKey:  options.first("first"),
+		searchKey: options.first("first", "key", "k"),
 		debug:     options.has("debug") || options.has("d"),
 		err:       log.New(os.Stderr, "", 0),
 		out:       log.New(os.Stdout, "", 0),
@@ -389,7 +403,7 @@ func showHelp(command string) int {
 
 USAGE
     ` + command + ` [--help] [--format=json|text|csv|reduced] [--key=<key>] \\
-        [--dns=server] [--non-recursive] [--debug] \\
+        [--first=<key>] [--dns=server] [--non-recursive] [--debug] \\
         <hostname> [...<hostname>]
 
 EXAMPLE
@@ -428,6 +442,7 @@ OPTIONS
                            can specify a domain with port: 1.1.1.1:53
     --debug, -d            Render log output to stderr in the specified format.
     --key, -k              Only render one particular dnslink key.
+		--first                Only render the first of the defined dnslink key.
     --non-recursive, -nr   Prevent Lookup of recursive dnslink entries.
 
     Read more about it here: https://github.com/dnslink-std/go
