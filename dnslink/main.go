@@ -176,6 +176,69 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 
 func (write *WriteTXT) end() {}
 
+type WriteReduced struct {
+	firstOut bool
+	firstErr bool
+	options  WriteOptions
+}
+
+func NewWriteReduced(options WriteOptions) *WriteReduced {
+	return &WriteReduced{
+		firstOut: true,
+		firstErr: true,
+		options:  options,
+	}
+}
+
+func (write *WriteReduced) write(lookup string, result dnslink.Result) {
+	out := write.options.out
+	err := write.options.err
+	prefix := ""
+	if len(write.options.domains) > 1 {
+		prefix = lookup + ": "
+	}
+	for key, values := range result.Links {
+		if write.options.searchKey != false && write.options.searchKey != key {
+			continue
+		}
+		for _, entry := range values {
+			value, error := result.Path.Reduce(entry.Value)
+			var valueStr string
+			if error != nil {
+				valueStr = fmt.Sprintf("Error while reducing '%s': %s", entry.Value, error.Error())
+			} else {
+				valueStr = value.String()
+			}
+
+			if write.options.searchKey != false {
+				out.Println(prefix + valueStr)
+			} else {
+				out.Println(prefix + "/" + key + "/" + valueStr)
+			}
+		}
+	}
+	if write.options.debug {
+		for _, logEntry := range result.Log {
+			optional := ""
+			if logEntry.Pathname != "" {
+				optional += " pathname=" + logEntry.Pathname
+			}
+			if len(logEntry.Search) > 0 {
+				optional += " search=" + logEntry.Search.String()
+			}
+			if logEntry.Entry != "" {
+				optional += " entry=" + logEntry.Entry
+			}
+			if logEntry.Reason != "" {
+				optional += " reason=" + logEntry.Reason
+			}
+			err.Println("[" + logEntry.Code + "] domain=" + logEntry.Domain + optional)
+		}
+	}
+}
+
+func (write *WriteReduced) end() {}
+
 type WriteCSV struct {
 	firstOut bool
 	firstErr bool
@@ -252,7 +315,7 @@ func renderPaths(paths []dnslink.PathEntry) string {
 
 func (write *WriteCSV) end() {}
 
-var formats []interface{} = []interface{}{"json", "txt", "csv"}
+var formats []interface{} = []interface{}{"json", "txt", "csv", "reduced"}
 
 func main() {
 	options, lookups := getOptions(os.Args[1:])
@@ -285,6 +348,8 @@ func main() {
 		output = NewWriteTXT(writeOpts)
 	} else if format == "csv" {
 		output = NewWriteCSV(writeOpts)
+	} else if format == "reduced" {
+		output = NewWriteReduced(writeOpts)
 	} else {
 		output = NewWriteJSON(writeOpts)
 	}
@@ -323,8 +388,8 @@ func showHelp(command string) int {
 	fmt.Printf(command + ` - resolve dns links in TXT records
 
 USAGE
-    ` + command + ` [--help] [--format=json|text|csv] [--key=<key>] [--debug] \\
-        [--dns=server] [--non-recursive] \\
+    ` + command + ` [--help] [--format=json|text|csv|reduced] [--key=<key>] \\
+        [--dns=server] [--non-recursive] [--debug] \\
         <hostname> [...<hostname>]
 
 EXAMPLE
@@ -357,7 +422,7 @@ EXAMPLE
 OPTIONS
     --help, -h             Show this help.
     --version, -v          Show the version of this command.
-    --format, -f           Output format json, text or csv (default=json)
+    --format, -f           Output format json, text, reduced or csv (default=json)
     --dns=<server>         Specify a dns server to use. If you don't specify a
                            server it will use the system dns service. As server you
                            can specify a domain with port: 1.1.1.1:53
