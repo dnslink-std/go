@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"strings"
 
@@ -142,7 +141,7 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 			value := entry.Value
 			value += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
 			for _, part := range result.Path {
-				value += " [path=" + renderPath(part) + "]"
+				value += " [path=" + part.String() + "]"
 			}
 
 			if write.options.searchKey != false {
@@ -162,7 +161,7 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 				optional += " pathname=" + logEntry.Pathname
 			}
 			if len(logEntry.Search) > 0 {
-				optional += " search=" + renderSearch(logEntry.Search)
+				optional += " search=" + logEntry.Search.String()
 			}
 			if logEntry.Entry != "" {
 				optional += " entry=" + logEntry.Entry
@@ -173,36 +172,6 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 			err.Println("[" + logEntry.Code + "] domain=" + logEntry.Domain + optional)
 		}
 	}
-}
-
-func renderPath(path dnslink.PathEntry) string {
-	result := ""
-	if path.Pathname != "" {
-		result += path.Pathname
-	}
-	if len(path.Search) > 0 {
-		result += renderSearch(path.Search)
-	}
-	return result
-}
-
-func renderSearch(search url.Values) string {
-	if len(search) == 0 {
-		return ""
-	}
-	result := "?"
-	prev := false
-	for key, values := range search {
-		for _, value := range values {
-			if prev {
-				result += "&"
-			} else {
-				prev = true
-			}
-			result += url.QueryEscape(key) + "=" + url.QueryEscape(value)
-		}
-	}
-	return result
 }
 
 func (write *WriteTXT) end() {}
@@ -242,7 +211,7 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 				write.firstErr = false
 				err.Println("domain,pathname,search,code,entry,reason")
 			}
-			err.Println(csv(logEntry.Domain, logEntry.Pathname, renderSearch(logEntry.Search), logEntry.Code, logEntry.Entry, logEntry.Reason))
+			err.Println(csv(logEntry.Domain, logEntry.Pathname, logEntry.Search.String(), logEntry.Code, logEntry.Entry, logEntry.Reason))
 		}
 	}
 }
@@ -275,7 +244,7 @@ func renderPaths(paths []dnslink.PathEntry) string {
 	result := ""
 	prefix := ""
 	for _, path := range paths {
-		result += prefix + renderPath(path)
+		result += prefix + path.String()
 		prefix = " → "
 	}
 	return result

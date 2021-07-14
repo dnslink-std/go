@@ -192,19 +192,19 @@ func TestResolveTxtEntries(t *testing.T) {
 
 func TestGetPathFromLog(t *testing.T) {
 	a := assert.New(t)
-	a.EqualValues(getPathFromLog([]LogStatement{}), []PathEntry{})
-	a.EqualValues(getPathFromLog([]LogStatement{{Code: "RESOLVE", Pathname: "/foo/bar"}}), []PathEntry{
+	a.EqualValues(PathEntries{}, getPathFromLog([]LogStatement{}))
+	a.EqualValues(PathEntries{
 		{Pathname: "/foo/bar"},
-	})
-	a.EqualValues(getPathFromLog([]LogStatement{
-		{Code: "REDIRECT", Pathname: "/foo/bar", Search: map[string][]string{"foo": {"bar", "baz"}}},
-		{Code: "REDIRECT", Pathname: "/too/tar", Search: map[string][]string{"too": {"tar", "taz"}}},
-		{Code: "RESOLVE", Pathname: "/baz/bak"},
-	}), []PathEntry{
+	}, getPathFromLog([]LogStatement{{Code: "RESOLVE", Pathname: "/foo/bar"}}))
+	a.EqualValues(PathEntries{
 		{Pathname: "/baz/bak"},
 		{Pathname: "/too/tar", Search: map[string][]string{"too": {"tar", "taz"}}},
 		{Pathname: "/foo/bar", Search: map[string][]string{"foo": {"bar", "baz"}}},
-	})
+	}, getPathFromLog([]LogStatement{
+		{Code: "REDIRECT", Pathname: "/foo/bar", Search: map[string][]string{"foo": {"bar", "baz"}}},
+		{Code: "REDIRECT", Pathname: "/too/tar", Search: map[string][]string{"too": {"tar", "taz"}}},
+		{Code: "RESOLVE", Pathname: "/baz/bak"},
+	}))
 }
 
 func TestDnsLinkN(t *testing.T) {
@@ -217,7 +217,7 @@ func TestDnsLinkN(t *testing.T) {
 				{Value: "QmY3hE8xgFCjGcz6PHgnvJz5HZi1BaKRfPkn1ghZUcYMjD", Ttl: 100},
 			},
 		},
-		Path: []PathEntry{},
+		Path: PathEntries{},
 		Log: []LogStatement{
 			{Code: "REDIRECT", Domain: "_dnslink.ipfs.example.com", Search: map[string][]string{}},
 			{Code: "RESOLVE", Domain: "ipfs.example.com"},
@@ -233,6 +233,33 @@ func TestUDPLookup(t *testing.T) {
 	assert.Equal(t, txt[0].Value, "dnslink=/ipfs/")
 	assert.Equal(t, txt[1].Value, "dnslink=/ipfs/MNOP")
 	assert.InDelta(t, txt[0].Ttl, 1800, 1802) // 0 ~ 3600 + margin
+}
+
+func TestReducePath(t *testing.T) {
+	stringOf := func(input ...interface{}) string {
+		assert.Equal(t, len(input), 2)
+		err := input[1]
+		if err != nil {
+			assert.NoError(t, err.(error))
+		}
+		switch v := input[0].(type) {
+		default:
+			return fmt.Sprint(v)
+		case PathEntry:
+			return v.String()
+		}
+	}
+	assert.Equal(t, "foo", stringOf(PathEntries{}.Reduce("foo")), "Simple pass through")
+	assert.Equal(t, "foo", stringOf(PathEntries{}.Reduce("foo#bar")), "Hash values are not supported")
+	assert.Equal(t, "foo?bak=booz&bar=baz&bar=boo", stringOf(PathEntries{}.Reduce("foo?bar=baz&bar=boo&bak=booz")), "Pass through of some query values.")
+	assert.Equal(t, "%E3%83%86%E3%82%B9%E3%83%88%20?%E6%97%A5%E6%9C%AC%E8%AA%9E=%E8%A8%80%E8%AA%9E", stringOf(PathEntries{}.Reduce("テスト ?日本語=言語")), "Unicode is converted to URI encoded")
+	assert.Equal(t, "bar/boo", stringOf(PathEntries{}.Reduce("foo/../bar/baz/../boo")), "Input paths are reduced")
+	assert.Equal(t, "foo/baz", stringOf(PathEntries{{Pathname: "/baz"}}.Reduce("foo")), "Concatinating simple paths")
+	assert.Equal(t, "baz", stringOf(PathEntries{{Pathname: "//baz"}}.Reduce("foo")), "Concatinating absolute paths")
+	assert.Equal(t, "foo/bar/baz", stringOf(PathEntries{{Pathname: "/bar"}, {Pathname: "/baz"}}.Reduce("foo")), "Concatinating path entries from first to last")
+	assert.Equal(t, "foo?bar=baz&bar=boo&kuu=moo", stringOf(PathEntries{{Search: Search{"bar": {"baz", "boo"}}}}.Reduce("foo?kuu=moo")), "Concatinating search queries")
+	assert.Equal(t, "bar/zoo/doo/moo/koo/soo", stringOf(PathEntries{{Pathname: "/../zoo/doo/./moo"}, {Pathname: "/./kee/../koo/soo"}}.Reduce("foo/../bar/baz/../boo")), "Combining and reducing . and .. entries")
+	assert.Equal(t, "foo/bar/baz?boo=mee&boo=moo&kuu=kee&kuu=koo", stringOf(PathEntries{{Pathname: "/bar", Search: Search{"boo": {"mee", "moo"}}}, {Pathname: "/baz"}, {Search: Search{"kuu": {"kee", "koo"}}}}.Reduce("foo")), "Multiple search and pathname combinations.")
 }
 
 func arr(input ...interface{}) []interface{} {

@@ -15,9 +15,40 @@ import (
 	dns "github.com/miekg/dns"
 )
 
+type Search map[string][]string
+
+func (search Search) String() string {
+	if len(search) == 0 {
+		return ""
+	}
+	result := "?"
+	prev := false
+	keys := []string{}
+	for key := range search {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		values := search[key]
+		for _, value := range values {
+			if prev {
+				result += "&"
+			} else {
+				prev = true
+			}
+			result += url.QueryEscape(key) + "=" + url.QueryEscape(value)
+		}
+	}
+	return result
+}
+
 type PathEntry struct {
 	Pathname string
-	Search   map[string][]string
+	Search   Search
+}
+
+func (p *PathEntry) String() string {
+	return p.Pathname + p.Search.String()
 }
 
 func (p *PathEntry) MarshalJSON() ([]byte, error) {
@@ -31,13 +62,43 @@ func (p *PathEntry) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
+type PathEntries []PathEntry
+
+func (paths PathEntries) Reduce(input string) (PathEntry, error) {
+	urlParts, error := url.Parse(input)
+	if error != nil {
+		return PathEntry{}, error
+	}
+	basePath := urlParts.Host + urlParts.Path
+	search := searchFromQuery(urlParts.RawQuery)
+	pathParts := strings.Split(basePath, "/")[:]
+	for _, path := range paths {
+		pathname := path.Pathname
+		if pathname != "" {
+			pathname = strings.TrimPrefix(pathname, "/")
+			if strings.HasPrefix(pathname, "/") {
+				pathname = pathname[1:]
+				pathParts = []string{}
+			}
+			pathParts = append(pathParts, strings.Split(pathname, "/")...)
+		}
+		if path.Search != nil {
+			search = combineSearch(path.Search, search)
+		}
+	}
+	return PathEntry{
+		Pathname: reducePath(pathParts),
+		Search:   search,
+	}, nil
+}
+
 type LogStatement struct {
 	Code     string
 	Domain   string
 	Entry    string
 	Reason   string
 	Pathname string
-	Search   map[string][]string
+	Search   Search
 }
 
 func (l *LogStatement) Error() string {
@@ -87,7 +148,7 @@ func (url *URLParts) MarshalJSON() ([]byte, error) {
 
 type Result struct {
 	Links map[string][]LookupEntry `json:"links"`
-	Path  []PathEntry              `json:"path"`
+	Path  PathEntries              `json:"path"`
 	Log   []LogStatement           `json:"log"`
 }
 
@@ -315,7 +376,7 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 	}
 	lookup, error := validateDomain(domain, "")
 	result.Links = map[string][]LookupEntry{}
-	result.Path = []PathEntry{}
+	result.Path = PathEntries{}
 	result.Log = []LogStatement{}[:]
 	if error != nil {
 		return result, error
@@ -483,24 +544,63 @@ func relevantURLParts(input string) URLParts {
 			pathname = "/" + parts[1]
 		}
 	}
+	return URLParts{
+		Domain:   domain,
+		Pathname: escapePath(pathname),
+		Search:   searchFromQuery(result.RawQuery),
+	}
+}
+
+func escapePath(pathname string) string {
 	pathparts := strings.Split(pathname, "/")
 	for index, pathpart := range pathparts {
 		pathparts[index] = url.PathEscape(pathpart)
 	}
-	pathname = strings.Join(pathparts, "/")
-	search, searchError := url.ParseQuery(result.RawQuery)
-	if searchError != nil {
-		search = make(map[string][]string)
-	}
-	return URLParts{
-		Domain:   domain,
-		Pathname: pathname,
-		Search:   search,
-	}
+	return strings.Join(pathparts, "/")
 }
 
-func getPathFromLog(log []LogStatement) []PathEntry {
-	path := []PathEntry{}[:]
+func searchFromQuery(query string) map[string][]string {
+	search, searchError := url.ParseQuery(query)
+	if searchError != nil {
+		return make(map[string][]string)
+	}
+	return search
+}
+
+func reducePath(parts []string) string {
+	finalParts := []string{}[:]
+	for _, part := range parts {
+		if part == ".." {
+			finalParts = finalParts[:len(finalParts)-1]
+		} else if part != "." {
+			finalParts = append(finalParts, part)
+		}
+	}
+	for i, part := range finalParts {
+		finalParts[i] = url.PathEscape(part)
+	}
+	return strings.Join(finalParts, "/")
+}
+
+func combineSearch(newEntries map[string][]string, search map[string][]string) map[string][]string {
+	if len(search) == 0 {
+		return newEntries
+	}
+	for key, entries := range newEntries {
+		for _, entry := range entries {
+			entryList, hasEntry := search[key]
+			if !hasEntry {
+				search[key] = []string{entry}
+			} else {
+				search[key] = append(entryList, entry)
+			}
+		}
+	}
+	return search
+}
+
+func getPathFromLog(log []LogStatement) (path PathEntries) {
+	path = PathEntries{}
 	for _, entry := range log {
 		if entry.Code != "REDIRECT" && entry.Code != "RESOLVE" {
 			continue
