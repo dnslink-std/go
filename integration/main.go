@@ -25,7 +25,12 @@ func main() {
 
 	resolved, error := r.ResolveN(domain)
 	if error != nil {
-		exitWithError(error)
+		switch e := error.(type) {
+		default:
+			exitWithError(e.Error())
+		case dnslink.RCodeError:
+			exitWithError(e.Code)
+		}
 	}
 
 	result, err := json.MarshalIndent(resolved, "", "  ")
@@ -36,10 +41,10 @@ func main() {
 	}
 }
 
-func exitWithError(input error) {
+func exitWithError(code string) {
 	result, err := json.MarshalIndent(map[string]map[string]string{
 		"error": {
-			"code": input.Error(),
+			"code": code,
 		},
 	}, "", "  ")
 	if err != nil {

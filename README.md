@@ -21,7 +21,23 @@ result, error := dnslink.Resolve("dnslink.dev")
 result, error = dnslink.ResolveN("dnslink.dev")
 
 if error != nil {
-  panic(error) // An error may occur if the domain can not be found.
+  switch e := error.(type) {
+  default:
+    // A variety other errors may be returned. Possible causes include, but are not limited to:
+    // - Invalid input
+    // - Timeouts / aborts
+    // - Networking errors
+    // - Incompatible dns packets provided by server
+    panic(e)
+  case dnslink.RCodeError:
+    err.RCode // Error code number following - https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
+    err.RCode.Name() // Error code name following (same list)
+    err.Code // "RCODE_%s", err.RCode
+    err.Domain // Domain lookup that resulted in the error
+    if e.RCode == 3 {
+      // NXDomain = Domain not found; most relevant error
+    }
+  }
 }
 
 // `links` property is a map[string][]string containing given links for the different keys, sorted.

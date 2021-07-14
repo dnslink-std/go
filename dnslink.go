@@ -3,6 +3,7 @@ package dnslink
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net"
 	"net/url"
@@ -131,6 +132,101 @@ func utf8Value(input []string) string {
 	return string(utf8Replace.ReplaceAllFunc([]byte(str), utf8ReplaceFunc))
 }
 
+type RCode int
+
+const (
+	NoError RCode = iota
+	Success
+	FormErr
+	ServFail
+	NXDomain
+	NotImp
+	Refused
+	YXDomain
+	YXRRSet
+	NXRRSet
+	NotAuth
+	NotZone
+	DSOTYPENI
+	_
+	_
+	_
+	_
+	BADVERS_BADSIG
+	BADKEY
+	BADTIME
+	BADMODE
+	BADNAME
+	BADALG
+	BADTRUNC
+	BADCOOKIE
+)
+
+var rcodeNames = []string{"Success", "FormErr", "ServFail", "NXDomain", "NotImp", "Refused", "YXDomain", "YXRRSet", "NXRRSet", "NotAuth", "NotZone", "DSOTYPENI", "", "", "", "", "BADVERS_BADSIG", "BADKEY", "BADTIME", "BADMODE", "BADNAME", "BADALG", "BADTRUNC", "BADCOOKIE"}
+var rcodeDetails = []string{
+	"",
+	"The name server was unable to interpret the query.",
+	"The name server was unable to process this query due to a problem with the name server.",
+	"Non-Existent Domain.",
+	"The name server does not support the requested kind of query.",
+	"The name server refuses to perform the specified operation for policy reasons.",
+	"Name Exists when it should not.",
+	"RR Set Exists when it should not.",
+	"RR Set that should exist does not.",
+	"Server Not Authoritative for zone  / Not Authorized.",
+	"Name not contained in zone.",
+	"DSO-TYPE Not Implemented.",
+	"", "", "", "",
+	"Bad OPT Version. / TSIG Signature Failure.",
+	"Key not recognized.",
+	"Signature out of time window",
+	"Bad TKEY Mode.",
+	"Duplicate key name.",
+	"Algorithm not supported.",
+	"Bad Truncation.",
+	"Bad/missing Server Cookie.",
+}
+
+func (code RCode) Name() string {
+	if int(code) > len(rcodeNames) {
+		return ""
+	}
+	return rcodeNames[code]
+}
+func (code RCode) Detail() string {
+	if int(code) > len(rcodeDetails) || rcodeDetails[code] == "" {
+		return "Undefined Error."
+	}
+	return rcodeDetails[code]
+}
+
+type RCodeError struct {
+	RCode  RCode  `json:"rcode"`
+	Code   string `json:"code"`
+	Name   string `json:"error"`
+	Domain string `json:"domain"`
+}
+
+func NewRCodeError(rcode int, domain string) RCodeError {
+	code := RCode(rcode)
+	return RCodeError{
+		RCode:  code,
+		Name:   code.Name(),
+		Code:   fmt.Sprintf("RCODE_%d", rcode),
+		Domain: domain,
+	}
+}
+
+func (e RCodeError) Error() string {
+	name := e.RCode.Name()
+	if name == "" {
+		name = ""
+	} else {
+		name = fmt.Sprintf("error=%s ,", name)
+	}
+	return fmt.Sprintf("%s (rcode=%d, %sdomain=%s)", e.RCode.Detail(), int(e.RCode), name, e.Domain)
+}
+
 func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
 	client := new(dns.Client)
 	if udpSize == 0 {
@@ -156,6 +252,9 @@ func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
 		res, _, err := client.Exchange(req, server)
 		if err != nil {
 			return nil, err
+		}
+		if res.Rcode != 0 {
+			return nil, NewRCodeError(res.Rcode, domain)
 		}
 		entries = make([]LookupEntry, len(res.Answer))
 		for index, answer := range res.Answer {
@@ -223,7 +322,7 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 		domain = lookup.Domain
 		resolve := LogStatement{Code: "RESOLVE", Domain: domain, Pathname: lookup.Pathname, Search: lookup.Search}
 		txtEntries, error := lookupTXT(domain)
-		if error != nil && !strings.HasPrefix(domain, dnsPrefix) {
+		if error != nil && !(isNotFoundError(error) && strings.HasPrefix(domain, dnsPrefix)) {
 			chain[domain] = true
 			result.Log = append(result.Log, resolve)
 			return result, error
@@ -247,6 +346,15 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 		chain[domain] = true
 		result.Log = append(result.Log, LogStatement{Code: "REDIRECT", Domain: lookup.Domain, Pathname: lookup.Pathname, Search: lookup.Search})
 		lookup = redirect
+	}
+}
+
+func isNotFoundError(err error) bool {
+	switch e := err.(type) {
+	default:
+		return false
+	case RCodeError:
+		return e.RCode == 3
 	}
 }
 
