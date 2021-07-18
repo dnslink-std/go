@@ -81,9 +81,9 @@ func TestValidateDomain(t *testing.T) {
 		&URLParts{Domain: "_dnslink.hello.com", Pathname: "/foo", Search: map[string][]string{"bar": {"baz"}}},
 		logNil,
 	)
-	assertResult(t, arr(validateDomain("hello .com", "dnslink=/dnslink/hello .com/foo")),
+	assertResult(t, arr(validateDomain("hello..com", "dnslink=/dnslink/hello..com/foo")),
 		partsNil,
-		&LogStatement{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/hello .com/foo"},
+		&LogStatement{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/hello..com/foo", Reason: "EMPTY_PART"},
 	)
 	assertResult(t, arr(validateDomain("_dnslink._dnslink.hello.com", "")),
 		partsNil,
@@ -172,10 +172,10 @@ func TestResolveTxtEntries(t *testing.T) {
 		})
 	assertResult(t,
 		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{
-			{Value: "dnslink=/dnslink/domain b.com", Ttl: 100},
+			{Value: "dnslink=/dnslink/domain..b.com", Ttl: 100},
 		})),
 		map[string][]LookupEntry{}, []LogStatement{
-			{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/domain b.com"},
+			{Code: "INVALID_REDIRECT", Entry: "dnslink=/dnslink/domain..b.com", Reason: "EMPTY_PART"},
 		}, partsNil)
 	assertResult(t,
 		arr(resolveTxtEntries("_dnslink.domain.com", true, []LookupEntry{

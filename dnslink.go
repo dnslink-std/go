@@ -438,13 +438,15 @@ func validateDomain(input string, entry string) (*URLParts, *LogStatement) {
 			}
 		}
 	}
-	if !isFqdn(domain) {
+	domain = strings.TrimSuffix(domain, ".")
+	reason := testFqnd(domain)
+	if reason != "" {
 		return nil, &LogStatement{
-			Code:  "INVALID_REDIRECT",
-			Entry: entry,
+			Code:   "INVALID_REDIRECT",
+			Entry:  entry,
+			Reason: reason,
 		}
 	}
-	domain = strings.TrimSuffix(domain, ".")
 	return &URLParts{
 		Domain:   dnsPrefix + domain,
 		Pathname: urlParts.Pathname,
@@ -452,69 +454,22 @@ func validateDomain(input string, entry string) (*URLParts, *LogStatement) {
 	}, nil
 }
 
-var intlDomainCharset = regexp.MustCompile("^([a-z\u00a1-\uffff]{2,}|xn[a-z0-9-]{2,})$")
-var spacesAndSpecialChars = regexp.MustCompile("[\\s\u2002-\u200B\u202F\u205F\u3000��\u00A9\uFFFD\uFEFF]")
-var domainCharset = regexp.MustCompile("^[a-z\u00a1-\u00ff0-9-]+$")
-
-func isFqdn(str string) bool {
-	str = strings.TrimSuffix(str, ".")
-	if str == "" {
-		return false
-	}
-	parts := strings.Split(str, ".")
-	tld := parts[len(parts)-1]
-
-	// disallow fqdns without tld
-	if len(parts) < 2 {
-		return false
+func testFqnd(domain string) string {
+	if len(domain) > 253-9 /* len("_dnslink.") */ {
+		return "TOO_LONG"
 	}
 
-	if !intlDomainCharset.MatchString(tld) {
-		return false
-	}
-
-	// disallow spaces && special characers
-	if spacesAndSpecialChars.MatchString(tld) {
-		return false
-	}
-
-	// disallow all numbers
-	if every(parts, isNumber) {
-		return false
-	}
-
-	return every(parts, isDomainPart)
-}
-
-func isDomainPart(part string) bool {
-	if len(part) > 63 {
-		return false
-	}
-
-	if !domainCharset.MatchString(part) {
-		return false
-	}
-
-	// disallow parts starting or ending with hyphen
-	if strings.HasPrefix(part, "-") || strings.HasSuffix(part, "-") {
-		return false
-	}
-
-	return true
-}
-
-func isNumber(str string) bool {
-	_, err := strconv.Atoi(str)
-	return err == nil
-}
-
-func every(strings []string, test func(string) bool) bool {
-	for _, str := range strings {
-		if !test(str) {
-			return false
+	labels := strings.Split(domain, ".")
+	for _, label := range labels {
+		l := len(label)
+		if l == 0 {
+			return "EMPTY_PART"
+		}
+		if l > 63 {
+			return "TOO_LONG"
 		}
 	}
-	return true
+	return ""
 }
 
 type processedEntry struct {
