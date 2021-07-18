@@ -704,10 +704,20 @@ func processEntries(dnslinkEntries []LookupEntry) (map[string][]processedEntry, 
 	return found, log
 }
 
+// https://datatracker.ietf.org/doc/html/rfc4343#section-2.1
+var entryCharset = regexp.MustCompile("^[\u0020-\u007e]+$")
+
 func validateDNSLinkEntry(entry string) (key string, value string, error string) {
 	trimmed := strings.TrimSpace(entry[len(txtPrefix):])
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", "", "WRONG_START"
+	}
+	if !entryCharset.MatchString(trimmed) {
+		return "", "", "INVALID_CHARACTER"
+	}
+	trimmed, err := url.PathUnescape(trimmed)
+	if err != nil {
+		return "", "", "INVALID_ENCODING"
 	}
 	parts := strings.Split(trimmed, "/")[1:]
 	if len(parts) == 0 {
