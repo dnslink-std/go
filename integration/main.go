@@ -27,9 +27,9 @@ func main() {
 	if error != nil {
 		switch e := error.(type) {
 		default:
-			exitWithError(e.Error())
+			exitWithError(e.Error(), "")
 		case dnslink.RCodeError:
-			exitWithError(e.Code)
+			exitWithError(e.Code, e.Error())
 		}
 	}
 
@@ -41,10 +41,11 @@ func main() {
 	}
 }
 
-func exitWithError(code string) {
+func exitWithError(code string, message string) {
 	result, err := json.MarshalIndent(map[string]map[string]string{
 		"error": {
-			"code": code,
+			"message": message,
+			"code":    code,
 		},
 	}, "", "  ")
 	if err != nil {
