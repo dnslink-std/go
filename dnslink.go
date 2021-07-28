@@ -369,11 +369,14 @@ func wrapLookup(r *net.Resolver, ttl uint32) LookupTXTFunc {
 
 var defaultLookupTXT = wrapLookup(net.DefaultResolver, 0)
 
+const MAX_UINT_32 uint32 = 4294967295
+
 func resolve(r *Resolver, domain string, recursive bool) (result Result, err error) {
 	lookupTXT := r.LookupTXT
 	if lookupTXT == nil {
 		lookupTXT = defaultLookupTXT
 	}
+	ttl := MAX_UINT_32
 	lookup, error := validateDomain(domain, "")
 	result.Links = map[string][]LookupEntry{}
 	result.Path = PathEntries{}
@@ -391,14 +394,21 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 			result.Log = append(result.Log, resolve)
 			return result, error
 		}
-		links, partialLog, redirect := resolveTxtEntries(domain, recursive, txtEntries)
+		links, partialLog, redirect, redirectTtl := resolveTxtEntries(domain, recursive, txtEntries)
 		result.Log = append(result.Log, partialLog...)
 		if redirect == nil {
 			result.Log = append(result.Log, resolve)
+			for _, entries := range links {
+				for i, entry := range entries {
+					entry.Ttl = minUint32(entry.Ttl, ttl)
+					entries[i] = entry
+				}
+			}
 			result.Links = links
 			result.Path = getPathFromLog(result.Log)
 			return result, nil
 		}
+		ttl = minUint32(ttl, redirectTtl)
 		if chain[redirect.Domain] {
 			result.Log = append(result.Log, resolve, LogStatement{Code: "ENDLESS_REDIRECT", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
 			return result, nil
@@ -411,6 +421,13 @@ func resolve(r *Resolver, domain string, recursive bool) (result Result, err err
 		result.Log = append(result.Log, LogStatement{Code: "REDIRECT", Domain: lookup.Domain, Pathname: lookup.Pathname, Search: lookup.Search})
 		lookup = redirect
 	}
+}
+
+func minUint32(a uint32, b uint32) (smaller uint32) {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func isNotFoundError(err error) bool {
@@ -574,11 +591,12 @@ func getPathFromLog(log []LogStatement) (path PathEntries) {
 	return path
 }
 
-func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) (links map[string][]LookupEntry, log []LogStatement, redirect *URLParts) {
+func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) (links map[string][]LookupEntry, log []LogStatement, redirect *URLParts, redirectTtl uint32) {
 	links = make(map[string][]LookupEntry)
 	log = []LogStatement{}[:]
+	redirectTtl = MAX_UINT_32
 	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, dnsPrefix) {
-		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}
+		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}, redirectTtl
 	}
 	found, log := processEntries(txtEntries)
 	dnsLinks, hasDns := found["dnslink"]
@@ -592,6 +610,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 			} else if !hasRedirect {
 				hasRedirect = true
 				redirect = validated
+				redirectTtl = dns.ttl
 			} else {
 				log = append(log, LogStatement{
 					Code:  "UNUSED_ENTRY",
@@ -609,7 +628,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 					})
 				}
 			}
-			return links, log, redirect
+			return links, log, redirect, redirectTtl
 		}
 	}
 	for key, foundEntries := range found {
@@ -623,7 +642,7 @@ func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) 
 		sort.Sort(ByValue{list})
 		links[key] = list
 	}
-	return links, log, nil
+	return links, log, nil, redirectTtl
 }
 
 func hasDNSLinkEntry(txtEntries []LookupEntry) bool {
