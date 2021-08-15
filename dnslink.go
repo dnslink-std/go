@@ -39,8 +39,14 @@ func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
 }
 
 type Result struct {
-	Links map[string][]NamespaceEntry `json:"links"`
-	Log   []LogStatement              `json:"log"`
+	TxtEntries []TxtEntry                  `json:"txtEntries"`
+	Links      map[string]NamespaceEntries `json:"links"`
+	Log        []LogStatement              `json:"log"`
+}
+
+type TxtEntry struct {
+	Value string `json:"value"`
+	Ttl   uint32 `json:"ttl"`
 }
 
 type NamespaceEntry struct {
@@ -272,10 +278,10 @@ func resolve(r *Resolver, domain string) (result Result, err error) {
 		return
 	}
 	fallback := false
-	txtEntries, err := lookupTXT(dnsPrefix + domain)
+	input, err := lookupTXT(dnsPrefix + domain)
 	if err != nil {
 		if isNotFoundError(err) {
-			txtEntries, err = lookupTXT(domain)
+			input, err = lookupTXT(domain)
 			if err != nil {
 				return
 			}
@@ -284,12 +290,13 @@ func resolve(r *Resolver, domain string) (result Result, err error) {
 			return
 		}
 	}
-	links, log := processEntries(txtEntries)
+	links, txtEntries, log := processEntries(input)
 	if fallback {
 		log = append([]LogStatement{{Code: "FALLBACK"}}, log...)
 	}
 	result.Log = log
 	result.Links = links
+	result.TxtEntries = txtEntries
 	return
 }
 
@@ -320,10 +327,10 @@ func testFqnd(domain string) error {
 	return nil
 }
 
-func processEntries(dnslinkEntries []LookupEntry) (map[string][]NamespaceEntry, []LogStatement) {
+func processEntries(input []LookupEntry) (map[string]NamespaceEntries, []TxtEntry, []LogStatement) {
 	log := []LogStatement{}[:]
-	found := make(map[string][]NamespaceEntry)
-	for _, entry := range dnslinkEntries {
+	found := make(map[string]NamespaceEntries)
+	for _, entry := range input {
 		if !strings.HasPrefix(entry.Value, txtPrefix) {
 			continue
 		}
@@ -341,10 +348,22 @@ func processEntries(dnslinkEntries []LookupEntry) (map[string][]NamespaceEntry, 
 			found[key] = append(list, processed)
 		}
 	}
-	for _, list := range found {
-		sort.Sort(ByValue{list})
+	txtEntries := []TxtEntry{}[:]
+	// TODO: this sorting can be made simpler when trimming is removed.
+	namespaces := make([]string, 0, len(found))
+	for ns := range found {
+		namespaces = append(namespaces, ns)
 	}
-	return found, log
+	sort.Strings(namespaces)
+	for _, ns := range namespaces {
+		list := found[ns]
+		sort.Sort(ByValue{list})
+		for _, processed := range list {
+			txtEntries = append(txtEntries, TxtEntry{Value: "/" + ns + "/" + processed.Identifier, Ttl: processed.Ttl})
+		}
+	}
+
+	return found, txtEntries, log
 }
 
 // https://datatracker.ietf.org/doc/html/rfc4343#section-2.1

@@ -53,13 +53,15 @@ func TestValidateDNSLinkEntry(t *testing.T) {
 }
 
 func TestProcessEntries(t *testing.T) {
-	assertResult(t, arr(processEntries([]LookupEntry{})), map[string][]LookupEntry{}, []LogStatement{})
+	assertResult(t, arr(processEntries([]LookupEntry{})), map[string]NamespaceEntries{}, []TxtEntry{}, []LogStatement{})
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
 			{Value: "foo", Ttl: 100},
 			{Value: "dnslink=", Ttl: 100},
 		})),
-		map[string]NamespaceEntries{}, []LogStatement{
+		map[string]NamespaceEntries{},
+		[]TxtEntry{},
+		[]LogStatement{
 			{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
 		})
 	assertResult(t,
@@ -68,7 +70,12 @@ func TestProcessEntries(t *testing.T) {
 		})),
 		map[string]NamespaceEntries{"foo": {
 			{Identifier: "bar", Ttl: 100},
-		}}, []LogStatement{})
+		}},
+		[]TxtEntry{
+			{Value: "/foo/bar", Ttl: 100},
+		},
+		[]LogStatement{},
+	)
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
 			{Value: "dnslink=/foo/bar", Ttl: 100},
@@ -77,32 +84,50 @@ func TestProcessEntries(t *testing.T) {
 		map[string]NamespaceEntries{"foo": {
 			{Identifier: "bar", Ttl: 100},
 			{Identifier: "baz", Ttl: 100},
-		}}, []LogStatement{})
+		}},
+		[]TxtEntry{
+			{Value: "/foo/bar", Ttl: 100},
+			{Value: "/foo/baz", Ttl: 100},
+		},
+		[]LogStatement{},
+	)
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
-			{Value: "dnslink=/foo/bar", Ttl: 100},
 			{Value: "dnslink=/foo/baz", Ttl: 100},
+			{Value: "dnslink=/foo/bar", Ttl: 100},
 		})),
 		map[string]NamespaceEntries{"foo": {
 			{Identifier: "bar", Ttl: 100},
 			{Identifier: "baz", Ttl: 100},
-		}}, []LogStatement{})
+		}},
+		[]TxtEntry{
+			{Value: "/foo/bar", Ttl: 100},
+			{Value: "/foo/baz", Ttl: 100},
+		},
+		[]LogStatement{},
+	)
 }
 
 func TestDnsLink(t *testing.T) {
 	mock := newMockDNS()
 	r := &Resolver{LookupTXT: mock.lookupTXT}
 	assertResult(t, arr(r.Resolve("foo.com")), Result{
-		Links: map[string][]NamespaceEntry{
+		Links: map[string]NamespaceEntries{
 			"x": {{Identifier: "a", Ttl: 100}},
+		},
+		TxtEntries: []TxtEntry{
+			{Value: "/x/a", Ttl: 100},
 		},
 		Log: []LogStatement{
 			{Code: "FALLBACK"},
 		},
 	}, nil)
 	assertResult(t, arr(r.Resolve("bar.com")), Result{
-		Links: map[string][]NamespaceEntry{
+		Links: map[string]NamespaceEntries{
 			"y": {{Identifier: "b", Ttl: 100}},
+		},
+		TxtEntries: []TxtEntry{
+			{Value: "/y/b", Ttl: 100},
 		},
 		Log: []LogStatement{},
 	}, nil)

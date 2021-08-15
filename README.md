@@ -43,6 +43,10 @@ result.Links["ipfs"][0] == "QmTg....yomU"
 // The `log` is always an Array and contains a list of log entries
 // that were should help to trace back how the linked data was resolved.
 result.Log
+
+// The `txtEntries` are a reduced form of the links that contains the namespace
+// as part of the value.
+result.TxtEntries === [{ value: "/ipfs/QmTg....yomU", ttl: 60 }]
 ```
 
 You can configure the DNS resolution
