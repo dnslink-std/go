@@ -57,7 +57,6 @@ func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 
 	outLine := map[string]interface{}{
 		"links": result.Links,
-		"path":  result.Path,
 	}
 
 	if len(write.options.domains) > 1 {
@@ -80,20 +79,11 @@ func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 			errLine := map[string]interface{}{
 				"code": statement.Code,
 			}
-			if statement.Domain != "" {
-				errLine["domain"] = statement.Domain
-			}
 			if statement.Entry != "" {
 				errLine["entry"] = statement.Entry
 			}
-			if statement.Pathname != "" {
-				errLine["pathname"] = statement.Pathname
-			}
 			if statement.Reason != "" {
 				errLine["reason"] = statement.Reason
-			}
-			if len(statement.Search) > 0 {
-				errLine["search"] = statement.Search
 			}
 			if len(write.options.domains) > 1 {
 				errLine["lookup"] = lookup
@@ -144,9 +134,6 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 		for _, entry := range values {
 			value := entry.Value
 			value += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
-			for _, part := range result.Path {
-				value += " [path=" + part.String() + "]"
-			}
 
 			if write.options.searchKey != false {
 				if write.options.searchKey != key {
@@ -164,19 +151,13 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 	if write.options.debug {
 		for _, logEntry := range result.Log {
 			optional := ""
-			if logEntry.Pathname != "" {
-				optional += " pathname=" + logEntry.Pathname
-			}
-			if len(logEntry.Search) > 0 {
-				optional += " search=" + logEntry.Search.String()
-			}
 			if logEntry.Entry != "" {
 				optional += " entry=" + logEntry.Entry
 			}
 			if logEntry.Reason != "" {
 				optional += " reason=" + logEntry.Reason
 			}
-			err.Println("[" + logEntry.Code + "] domain=" + logEntry.Domain + optional)
+			err.Println("[" + logEntry.Code + "]" + optional)
 		}
 	}
 }
@@ -209,18 +190,10 @@ func (write *WriteReduced) write(lookup string, result dnslink.Result) {
 			continue
 		}
 		for _, entry := range values {
-			value, error := result.Path.Reduce(entry.Value)
-			var valueStr string
-			if error != nil {
-				valueStr = fmt.Sprintf("Error while reducing '%s': %s", entry.Value, error.Error())
-			} else {
-				valueStr = value.String()
-			}
-
 			if write.options.searchKey != false {
-				out.Println(prefix + valueStr)
+				out.Println(prefix + entry.Value)
 			} else {
-				out.Println(prefix + "/" + key + "/" + valueStr)
+				out.Println(prefix + "/" + key + "/" + entry.Value)
 			}
 			if write.options.firstKey != false {
 				break
@@ -230,19 +203,13 @@ func (write *WriteReduced) write(lookup string, result dnslink.Result) {
 	if write.options.debug {
 		for _, logEntry := range result.Log {
 			optional := ""
-			if logEntry.Pathname != "" {
-				optional += " pathname=" + logEntry.Pathname
-			}
-			if len(logEntry.Search) > 0 {
-				optional += " search=" + logEntry.Search.String()
-			}
 			if logEntry.Entry != "" {
 				optional += " entry=" + logEntry.Entry
 			}
 			if logEntry.Reason != "" {
 				optional += " reason=" + logEntry.Reason
 			}
-			err.Println("[" + logEntry.Code + "] domain=" + logEntry.Domain + optional)
+			err.Println("[" + logEntry.Code + "]" + optional)
 		}
 	}
 }
@@ -275,7 +242,7 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 			continue
 		}
 		for _, value := range values {
-			out.Println(csv(lookup, key, value.Value, value.Ttl, renderPaths(result.Path)))
+			out.Println(csv(lookup, key, value.Value, value.Ttl))
 			if write.options.firstKey != false {
 				break
 			}
@@ -285,9 +252,9 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 		for _, logEntry := range result.Log {
 			if write.firstErr {
 				write.firstErr = false
-				err.Println("domain,pathname,search,code,entry,reason")
+				err.Println("code,entry,reason")
 			}
-			err.Println(csv(logEntry.Domain, logEntry.Pathname, logEntry.Search.String(), logEntry.Code, logEntry.Entry, logEntry.Reason))
+			err.Println(csv(logEntry.Code, logEntry.Entry, logEntry.Reason))
 		}
 	}
 }
@@ -312,16 +279,6 @@ func csv(rest ...interface{}) string {
 		}
 		result += prefix + value
 		prefix = ","
-	}
-	return result
-}
-
-func renderPaths(paths []dnslink.PathEntry) string {
-	result := ""
-	prefix := ""
-	for _, path := range paths {
-		result += prefix + path.String()
-		prefix = " → "
 	}
 	return result
 }
@@ -372,15 +329,9 @@ func main() {
 		resolver.LookupTXT = dnslink.NewUDPLookup(getServers(options.get("dns")), 0)
 	}
 	for _, lookup := range lookups {
-		var result dnslink.Result
-		var error error
-		if options.has("nr", "non-recursive") {
-			result, error = resolver.Resolve(lookup)
-		} else {
-			result, error = resolver.ResolveN(lookup)
-		}
-		if error != nil {
-			panic(error)
+		result, err := resolver.Resolve(lookup)
+		if err != nil {
+			panic(err)
 		}
 		output.write(lookup, result)
 	}
@@ -403,11 +354,11 @@ func showHelp(command string) int {
 
 USAGE
     ` + command + ` [--help] [--format=json|text|csv|reduced] [--key=<key>] \\
-        [--first=<key>] [--dns=server] [--non-recursive] [--debug] \\
+        [--first=<key>] [--dns=server] [--debug] \\
         <hostname> [...<hostname>]
 
 EXAMPLE
-    # Recursively receive the dnslink entries for the dnslink.io domain.
+    # Receive the dnslink entries for the dnslink.io domain.
     > ` + command + ` dnslink.io
     /ipfs/QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
 
@@ -443,7 +394,6 @@ OPTIONS
     --debug, -d            Render log output to stderr in the specified format.
     --key, -k              Only render one particular dnslink key.
 		--first                Only render the first of the defined dnslink key.
-    --non-recursive, -nr   Prevent Lookup of recursive dnslink entries.
 
     Read more about it here: https://github.com/dnslink-std/go
 

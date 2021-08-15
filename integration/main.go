@@ -23,7 +23,7 @@ func main() {
 		LookupTXT: dnslink.NewUDPLookup([]string{"127.0.0.1:" + fmt.Sprint(options.Udp)}, 0),
 	}
 
-	resolved, error := r.ResolveN(domain)
+	resolved, error := r.Resolve(domain)
 	if error != nil {
 		switch e := error.(type) {
 		default:

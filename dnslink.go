@@ -3,6 +3,7 @@ package dnslink
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -15,90 +16,10 @@ import (
 	dns "github.com/miekg/dns"
 )
 
-type Search map[string][]string
-
-func (search Search) String() string {
-	if len(search) == 0 {
-		return ""
-	}
-	result := "?"
-	prev := false
-	keys := []string{}
-	for key := range search {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		values := search[key]
-		for _, value := range values {
-			if prev {
-				result += "&"
-			} else {
-				prev = true
-			}
-			result += url.QueryEscape(key) + "=" + url.QueryEscape(value)
-		}
-	}
-	return result
-}
-
-type PathEntry struct {
-	Pathname string
-	Search   Search
-}
-
-func (p *PathEntry) String() string {
-	return p.Pathname + p.Search.String()
-}
-
-func (p *PathEntry) MarshalJSON() ([]byte, error) {
-	out := map[string]interface{}{}
-	if p.Pathname != "" {
-		out["pathname"] = p.Pathname
-	}
-	if len(p.Search) > 0 {
-		out["search"] = p.Search
-	}
-	return json.Marshal(out)
-}
-
-type PathEntries []PathEntry
-
-func (paths PathEntries) Reduce(input string) (PathEntry, error) {
-	urlParts, error := url.Parse(input)
-	if error != nil {
-		return PathEntry{}, error
-	}
-	basePath := urlParts.Host + urlParts.Path
-	search := searchFromQuery(urlParts.RawQuery)
-	pathParts := strings.Split(basePath, "/")[:]
-	for _, path := range paths {
-		pathname := path.Pathname
-		if pathname != "" {
-			pathname = strings.TrimPrefix(pathname, "/")
-			if strings.HasPrefix(pathname, "/") {
-				pathname = pathname[1:]
-				pathParts = []string{}
-			}
-			pathParts = append(pathParts, strings.Split(pathname, "/")...)
-		}
-		if path.Search != nil {
-			search = combineSearch(path.Search, search)
-		}
-	}
-	return PathEntry{
-		Pathname: reducePath(pathParts),
-		Search:   search,
-	}, nil
-}
-
 type LogStatement struct {
-	Code     string
-	Domain   string
-	Entry    string
-	Reason   string
-	Pathname string
-	Search   Search
+	Code   string
+	Entry  string
+	Reason string
 }
 
 func (l *LogStatement) Error() string {
@@ -109,46 +30,17 @@ func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
 	out := map[string]interface{}{
 		"code": stmt.Code,
 	}
-	if stmt.Domain != "" {
-		out["domain"] = stmt.Domain
-	}
 	if stmt.Entry != "" {
 		out["entry"] = stmt.Entry
 	}
 	if stmt.Reason != "" {
 		out["reason"] = stmt.Reason
 	}
-	if stmt.Pathname != "" {
-		out["pathname"] = stmt.Pathname
-	}
-	if len(stmt.Search) > 0 {
-		out["search"] = stmt.Search
-	}
-	return json.Marshal(out)
-}
-
-type URLParts struct {
-	Domain   string
-	Pathname string
-	Search   map[string][]string
-}
-
-func (url *URLParts) MarshalJSON() ([]byte, error) {
-	out := map[string]interface{}{
-		"domain": url.Domain,
-	}
-	if url.Pathname != "" {
-		out["pathname"] = url.Pathname
-	}
-	if len(url.Search) > 0 {
-		out["search"] = url.Search
-	}
 	return json.Marshal(out)
 }
 
 type Result struct {
 	Links map[string][]LookupEntry `json:"links"`
-	Path  PathEntries              `json:"path"`
 	Log   []LogStatement           `json:"log"`
 }
 
@@ -157,11 +49,7 @@ type Resolver struct {
 }
 
 func (r *Resolver) Resolve(domain string) (Result, error) {
-	return resolve(r, domain, false)
-}
-
-func (r *Resolver) ResolveN(domain string) (Result, error) {
-	return resolve(r, domain, true)
+	return resolve(r, domain)
 }
 
 type LookupEntry struct {
@@ -342,10 +230,6 @@ func Resolve(domain string) (Result, error) {
 	return defaultResolver.Resolve(domain)
 }
 
-func ResolveN(domain string) (Result, error) {
-	return defaultResolver.ResolveN(domain)
-}
-
 func wrapLookup(r *net.Resolver, ttl uint32) LookupTXTFunc {
 	return func(domain string) (res []LookupEntry, err error) {
 		txt, err := r.LookupTXT(context.Background(), domain)
@@ -371,63 +255,37 @@ var defaultLookupTXT = wrapLookup(net.DefaultResolver, 0)
 
 const MAX_UINT_32 uint32 = 4294967295
 
-func resolve(r *Resolver, domain string, recursive bool) (result Result, err error) {
+func resolve(r *Resolver, domain string) (result Result, err error) {
 	lookupTXT := r.LookupTXT
 	if lookupTXT == nil {
 		lookupTXT = defaultLookupTXT
 	}
-	ttl := MAX_UINT_32
-	lookup, error := validateDomain(domain, "")
-	result.Links = map[string][]LookupEntry{}
-	result.Path = PathEntries{}
-	result.Log = []LogStatement{}[:]
-	if error != nil {
-		return result, error
+	domain = strings.TrimPrefix(domain, dnsPrefix)
+	domain = strings.TrimSuffix(domain, ".")
+	err = testFqnd(domain)
+	if err != nil {
+		return
 	}
-	chain := make(map[string]bool)
-	for {
-		domain = lookup.Domain
-		resolve := LogStatement{Code: "RESOLVE", Domain: domain, Pathname: lookup.Pathname, Search: lookup.Search}
-		txtEntries, error := lookupTXT(domain)
-		if error != nil && !(isNotFoundError(error) && strings.HasPrefix(domain, dnsPrefix)) {
-			chain[domain] = true
-			result.Log = append(result.Log, resolve)
-			return result, error
-		}
-		links, partialLog, redirect, redirectTtl := resolveTxtEntries(domain, recursive, txtEntries)
-		result.Log = append(result.Log, partialLog...)
-		if redirect == nil {
-			result.Log = append(result.Log, resolve)
-			for _, entries := range links {
-				for i, entry := range entries {
-					entry.Ttl = minUint32(entry.Ttl, ttl)
-					entries[i] = entry
-				}
+	fallback := false
+	txtEntries, err := lookupTXT(dnsPrefix + domain)
+	if err != nil {
+		if isNotFoundError(err) {
+			txtEntries, err = lookupTXT(domain)
+			if err != nil {
+				return
 			}
-			result.Links = links
-			result.Path = getPathFromLog(result.Log)
-			return result, nil
+			fallback = true
+		} else {
+			return
 		}
-		ttl = minUint32(ttl, redirectTtl)
-		if chain[redirect.Domain] {
-			result.Log = append(result.Log, resolve, LogStatement{Code: "ENDLESS_REDIRECT", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
-			return result, nil
-		}
-		if len(chain) == 31 {
-			result.Log = append(result.Log, resolve, LogStatement{Code: "TOO_MANY_REDIRECTS", Domain: redirect.Domain, Pathname: redirect.Pathname, Search: redirect.Search})
-			return result, nil
-		}
-		chain[domain] = true
-		result.Log = append(result.Log, LogStatement{Code: "REDIRECT", Domain: lookup.Domain, Pathname: lookup.Pathname, Search: lookup.Search})
-		lookup = redirect
 	}
-}
-
-func minUint32(a uint32, b uint32) (smaller uint32) {
-	if a < b {
-		return a
+	links, log := processEntries(txtEntries)
+	if fallback {
+		log = append([]LogStatement{{Code: "FALLBACK"}}, log...)
 	}
-	return b
+	result.Log = log
+	result.Links = links
+	return
 }
 
 func isNotFoundError(err error) bool {
@@ -439,241 +297,47 @@ func isNotFoundError(err error) bool {
 	}
 }
 
-func validateDomain(input string, entry string) (*URLParts, *LogStatement) {
-	urlParts := relevantURLParts(input)
-	domain := urlParts.Domain
-	if strings.HasPrefix(domain, dnsPrefix) {
-		domain = domain[len(dnsPrefix):]
-		if strings.HasPrefix(domain, dnsPrefix) {
-			return nil, &LogStatement{
-				Code:     "RECURSIVE_DNSLINK_PREFIX",
-				Domain:   urlParts.Domain,
-				Entry:    "",
-				Reason:   "",
-				Pathname: urlParts.Pathname,
-				Search:   urlParts.Search,
-			}
-		}
-	}
-	domain = strings.TrimSuffix(domain, ".")
-	reason := testFqnd(domain)
-	if reason != "" {
-		return nil, &LogStatement{
-			Code:   "INVALID_REDIRECT",
-			Entry:  entry,
-			Reason: reason,
-		}
-	}
-	return &URLParts{
-		Domain:   dnsPrefix + domain,
-		Pathname: urlParts.Pathname,
-		Search:   urlParts.Search,
-	}, nil
-}
-
-func testFqnd(domain string) string {
+func testFqnd(domain string) error {
 	if len(domain) > 253-9 /* len("_dnslink.") */ {
-		return "TOO_LONG"
+		return errors.New("TOO_LONG")
 	}
 
 	labels := strings.Split(domain, ".")
 	for _, label := range labels {
 		l := len(label)
 		if l == 0 {
-			return "EMPTY_PART"
+			return errors.New("EMPTY_PART")
 		}
 		if l > 63 {
-			return "TOO_LONG"
+			return errors.New("TOO_LONG")
 		}
 	}
-	return ""
+	return nil
 }
 
-type processedEntry struct {
-	value string
-	entry string
-	ttl   uint32
-}
-
-func relevantURLParts(input string) URLParts {
-	result, error := url.Parse(input)
-	if error != nil {
-		return URLParts{
-			Domain:   "",
-			Pathname: "",
-			Search:   map[string][]string{},
-		}
-	}
-	domain := ""
-	pathname := ""
-	if result.Host != "" {
-		domain = result.Host
-		pathname = result.Path
-	} else if result.Path != "" {
-		parts := strings.SplitN(result.Path, "/", 2)
-		domain = parts[0]
-		if len(parts) == 2 {
-			pathname = "/" + parts[1]
-		}
-	}
-	return URLParts{
-		Domain:   domain,
-		Pathname: escapePath(pathname),
-		Search:   searchFromQuery(result.RawQuery),
-	}
-}
-
-func escapePath(pathname string) string {
-	pathparts := strings.Split(pathname, "/")
-	for index, pathpart := range pathparts {
-		pathparts[index] = url.PathEscape(pathpart)
-	}
-	return strings.Join(pathparts, "/")
-}
-
-func searchFromQuery(query string) map[string][]string {
-	search, searchError := url.ParseQuery(query)
-	if searchError != nil {
-		return make(map[string][]string)
-	}
-	return search
-}
-
-func reducePath(parts []string) string {
-	finalParts := []string{}[:]
-	for _, part := range parts {
-		if part == ".." {
-			finalParts = finalParts[:len(finalParts)-1]
-		} else if part != "." {
-			finalParts = append(finalParts, part)
-		}
-	}
-	for i, part := range finalParts {
-		finalParts[i] = url.PathEscape(part)
-	}
-	return strings.Join(finalParts, "/")
-}
-
-func combineSearch(newEntries map[string][]string, search map[string][]string) map[string][]string {
-	if len(search) == 0 {
-		return newEntries
-	}
-	for key, entries := range newEntries {
-		for _, entry := range entries {
-			entryList, hasEntry := search[key]
-			if !hasEntry {
-				search[key] = []string{entry}
-			} else {
-				search[key] = append(entryList, entry)
-			}
-		}
-	}
-	return search
-}
-
-func getPathFromLog(log []LogStatement) (path PathEntries) {
-	path = PathEntries{}
-	for _, entry := range log {
-		if entry.Code != "REDIRECT" && entry.Code != "RESOLVE" {
-			continue
-		}
-		if entry.Pathname != "" || len(entry.Search) != 0 {
-			path = append(path, PathEntry{
-				Pathname: entry.Pathname,
-				Search:   entry.Search,
-			})
-		}
-	}
-	// Reverse, see https://stackoverflow.com/a/19239850
-	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
-		path[i], path[j] = path[j], path[i]
-	}
-	return path
-}
-
-func resolveTxtEntries(domain string, recursive bool, txtEntries []LookupEntry) (links map[string][]LookupEntry, log []LogStatement, redirect *URLParts, redirectTtl uint32) {
-	links = make(map[string][]LookupEntry)
-	log = []LogStatement{}[:]
-	redirectTtl = MAX_UINT_32
-	if !hasDNSLinkEntry(txtEntries) && strings.HasPrefix(domain, dnsPrefix) {
-		return links, log, &URLParts{Domain: domain[len(dnsPrefix):]}, redirectTtl
-	}
-	found, log := processEntries(txtEntries)
-	dnsLinks, hasDns := found["dnslink"]
-	if recursive && hasDns {
-		hasRedirect := false
-		var redirect *URLParts
-		for _, dns := range dnsLinks {
-			validated, error := validateDomain(dns.value, dns.entry)
-			if error != nil {
-				log = append(log, *error)
-			} else if !hasRedirect {
-				hasRedirect = true
-				redirect = validated
-				redirectTtl = dns.ttl
-			} else {
-				log = append(log, LogStatement{
-					Code:  "UNUSED_ENTRY",
-					Entry: dns.entry,
-				})
-			}
-		}
-		delete(found, "dnslink")
-		if hasRedirect {
-			for _, foundEntries := range found {
-				for _, foundEntry := range foundEntries {
-					log = append(log, LogStatement{
-						Code:  "UNUSED_ENTRY",
-						Entry: foundEntry.entry,
-					})
-				}
-			}
-			return links, log, redirect, redirectTtl
-		}
-	}
-	for key, foundEntries := range found {
-		list := []LookupEntry{}[:]
-		for _, foundEntry := range foundEntries {
-			list = append(list, LookupEntry{
-				Value: foundEntry.value,
-				Ttl:   foundEntry.ttl,
-			})
-		}
-		sort.Sort(ByValue{list})
-		links[key] = list
-	}
-	return links, log, nil, redirectTtl
-}
-
-func hasDNSLinkEntry(txtEntries []LookupEntry) bool {
-	for _, txtEntry := range txtEntries {
-		if strings.HasPrefix(txtEntry.Value, txtPrefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func processEntries(dnslinkEntries []LookupEntry) (map[string][]processedEntry, []LogStatement) {
+func processEntries(dnslinkEntries []LookupEntry) (map[string][]LookupEntry, []LogStatement) {
 	log := []LogStatement{}[:]
-	found := make(map[string][]processedEntry)
+	found := make(map[string][]LookupEntry)
 	for _, entry := range dnslinkEntries {
 		if !strings.HasPrefix(entry.Value, txtPrefix) {
 			continue
 		}
-		key, value, error := validateDNSLinkEntry(entry.Value)
+		key, value, reason := validateDNSLinkEntry(entry.Value)
 
-		if error != "" {
-			log = append(log, LogStatement{Code: "INVALID_ENTRY", Entry: entry.Value, Reason: error})
+		if reason != "" {
+			log = append(log, LogStatement{Code: "INVALID_ENTRY", Entry: entry.Value, Reason: reason})
 			continue
 		}
 		list, hasList := found[key]
-		processed := processedEntry{value, entry.Value, entry.Ttl}
+		processed := LookupEntry{value, entry.Ttl}
 		if !hasList {
-			found[key] = []processedEntry{processed}
+			found[key] = []LookupEntry{processed}
 		} else {
 			found[key] = append(list, processed)
 		}
+	}
+	for _, list := range found {
+		sort.Sort(ByValue{list})
 	}
 	return found, log
 }
@@ -681,7 +345,7 @@ func processEntries(dnslinkEntries []LookupEntry) (map[string][]processedEntry, 
 // https://datatracker.ietf.org/doc/html/rfc4343#section-2.1
 var entryCharset = regexp.MustCompile("^[\u0020-\u007e]+$")
 
-func validateDNSLinkEntry(entry string) (key string, value string, error string) {
+func validateDNSLinkEntry(entry string) (key string, value string, reason string) {
 	trimmed := strings.TrimSpace(entry[len(txtPrefix):])
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", "", "WRONG_START"
