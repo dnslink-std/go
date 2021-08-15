@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -358,10 +357,6 @@ func validateDNSLinkEntry(entry string) (namespace string, identifier string, re
 	}
 	if !entryCharset.MatchString(trimmed) {
 		return "", "", "INVALID_CHARACTER"
-	}
-	trimmed, err := url.PathUnescape(trimmed)
-	if err != nil {
-		return "", "", "INVALID_ENCODING"
 	}
 	parts := strings.Split(trimmed, "/")[1:]
 	if len(parts) == 0 {
