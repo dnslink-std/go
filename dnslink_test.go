@@ -45,9 +45,9 @@ func TestValidateDomain(t *testing.T) {
 
 func TestValidateDNSLinkEntry(t *testing.T) {
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=")), "", "", "WRONG_START")
-	assertResult(t, arr(validateDNSLinkEntry("dnslink=/")), "", "", "KEY_MISSING")
-	assertResult(t, arr(validateDNSLinkEntry("dnslink=//")), "", "", "KEY_MISSING")
-	assertResult(t, arr(validateDNSLinkEntry("dnslink=/abcd/")), "", "", "NO_VALUE")
+	assertResult(t, arr(validateDNSLinkEntry("dnslink=/")), "", "", "NAMESPACE_MISSING")
+	assertResult(t, arr(validateDNSLinkEntry("dnslink=//")), "", "", "NAMESPACE_MISSING")
+	assertResult(t, arr(validateDNSLinkEntry("dnslink=/abcd/")), "", "", "NO_IDENTIFIER")
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=/abcd/efgh")), "abcd", "efgh", "")
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=/ abcd /  efgh ")), "abcd", "efgh", "")
 }
@@ -59,33 +59,33 @@ func TestProcessEntries(t *testing.T) {
 			{Value: "foo", Ttl: 100},
 			{Value: "dnslink=", Ttl: 100},
 		})),
-		map[string][]LookupEntry{}, []LogStatement{
+		map[string]NamespaceEntries{}, []LogStatement{
 			{Code: "INVALID_ENTRY", Entry: "dnslink=", Reason: "WRONG_START"},
 		})
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
 			{Value: "dnslink=/foo/bar", Ttl: 100},
 		})),
-		map[string][]LookupEntry{"foo": {
-			{Value: "bar", Ttl: 100},
+		map[string]NamespaceEntries{"foo": {
+			{Identifier: "bar", Ttl: 100},
 		}}, []LogStatement{})
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
 			{Value: "dnslink=/foo/bar", Ttl: 100},
 			{Value: "dnslink=/foo/baz", Ttl: 100},
 		})),
-		map[string][]LookupEntry{"foo": {
-			{Value: "bar", Ttl: 100},
-			{Value: "baz", Ttl: 100},
+		map[string]NamespaceEntries{"foo": {
+			{Identifier: "bar", Ttl: 100},
+			{Identifier: "baz", Ttl: 100},
 		}}, []LogStatement{})
 	assertResult(t,
 		arr(processEntries([]LookupEntry{
 			{Value: "dnslink=/foo/bar", Ttl: 100},
 			{Value: "dnslink=/foo/baz", Ttl: 100},
 		})),
-		map[string][]LookupEntry{"foo": {
-			{Value: "bar", Ttl: 100},
-			{Value: "baz", Ttl: 100},
+		map[string]NamespaceEntries{"foo": {
+			{Identifier: "bar", Ttl: 100},
+			{Identifier: "baz", Ttl: 100},
 		}}, []LogStatement{})
 }
 
@@ -93,16 +93,16 @@ func TestDnsLink(t *testing.T) {
 	mock := newMockDNS()
 	r := &Resolver{LookupTXT: mock.lookupTXT}
 	assertResult(t, arr(r.Resolve("foo.com")), Result{
-		Links: map[string][]LookupEntry{
-			"x": {{Value: "a", Ttl: 100}},
+		Links: map[string][]NamespaceEntry{
+			"x": {{Identifier: "a", Ttl: 100}},
 		},
 		Log: []LogStatement{
 			{Code: "FALLBACK"},
 		},
 	}, nil)
 	assertResult(t, arr(r.Resolve("bar.com")), Result{
-		Links: map[string][]LookupEntry{
-			"y": {{Value: "b", Ttl: 100}},
+		Links: map[string][]NamespaceEntry{
+			"y": {{Identifier: "b", Ttl: 100}},
 		},
 		Log: []LogStatement{},
 	}, nil)
@@ -110,11 +110,9 @@ func TestDnsLink(t *testing.T) {
 
 func TestUDPLookup(t *testing.T) {
 	lookup := NewUDPLookup([]string{"1.1.1.1:53"}, 0)
-	txt, error := lookup("_dnslink.t05.dnslink.dev")
+	txt, error := lookup("dnslink.dev")
 	assert.NoError(t, error)
-	assert.Equal(t, len(txt), 2)
-	assert.Equal(t, txt[0].Value, "dnslink=/ipfs/")
-	assert.Equal(t, txt[1].Value, "dnslink=/ipfs/MNOP")
+	assert.Equal(t, len(txt), 1)
 	assert.InDelta(t, txt[0].Ttl, 1800, 1802) // 0 ~ 3600 + margin
 }
 

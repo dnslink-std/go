@@ -40,8 +40,13 @@ func (stmt *LogStatement) MarshalJSON() ([]byte, error) {
 }
 
 type Result struct {
-	Links map[string][]LookupEntry `json:"links"`
-	Log   []LogStatement           `json:"log"`
+	Links map[string][]NamespaceEntry `json:"links"`
+	Log   []LogStatement              `json:"log"`
+}
+
+type NamespaceEntry struct {
+	Identifier string `json:"identifier"`
+	Ttl        uint32 `json:"ttl"`
 }
 
 type Resolver struct {
@@ -53,17 +58,19 @@ func (r *Resolver) Resolve(domain string) (Result, error) {
 }
 
 type LookupEntry struct {
-	Value string `json:"value"`
-	Ttl   uint32 `json:"ttl"`
+	Value string
+	Ttl   uint32
 }
-type LookupEntries []LookupEntry
+type NamespaceEntries []NamespaceEntry
 
-func (l LookupEntries) Len() int      { return len(l) }
-func (l LookupEntries) Swap(i, j int) { l[i], l[j] = l[j], l[i] }
+func (l NamespaceEntries) Len() int      { return len(l) }
+func (l NamespaceEntries) Swap(i, j int) { l[i], l[j] = l[j], l[i] }
 
-type ByValue struct{ LookupEntries }
+type ByValue struct{ NamespaceEntries }
 
-func (s ByValue) Less(i, j int) bool { return s.LookupEntries[i].Value < s.LookupEntries[j].Value }
+func (s ByValue) Less(i, j int) bool {
+	return s.NamespaceEntries[i].Identifier < s.NamespaceEntries[j].Identifier
+}
 
 type LookupTXTFunc func(name string) (txt []LookupEntry, err error)
 
@@ -215,7 +222,6 @@ func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
 				}
 			}
 		}
-		sort.Sort(ByValue{entries})
 		return entries, nil
 	}
 }
@@ -315,9 +321,9 @@ func testFqnd(domain string) error {
 	return nil
 }
 
-func processEntries(dnslinkEntries []LookupEntry) (map[string][]LookupEntry, []LogStatement) {
+func processEntries(dnslinkEntries []LookupEntry) (map[string][]NamespaceEntry, []LogStatement) {
 	log := []LogStatement{}[:]
-	found := make(map[string][]LookupEntry)
+	found := make(map[string][]NamespaceEntry)
 	for _, entry := range dnslinkEntries {
 		if !strings.HasPrefix(entry.Value, txtPrefix) {
 			continue
@@ -329,9 +335,9 @@ func processEntries(dnslinkEntries []LookupEntry) (map[string][]LookupEntry, []L
 			continue
 		}
 		list, hasList := found[key]
-		processed := LookupEntry{value, entry.Ttl}
+		processed := NamespaceEntry{value, entry.Ttl}
 		if !hasList {
-			found[key] = []LookupEntry{processed}
+			found[key] = []NamespaceEntry{processed}
 		} else {
 			found[key] = append(list, processed)
 		}
@@ -345,7 +351,7 @@ func processEntries(dnslinkEntries []LookupEntry) (map[string][]LookupEntry, []L
 // https://datatracker.ietf.org/doc/html/rfc4343#section-2.1
 var entryCharset = regexp.MustCompile("^[\u0020-\u007e]+$")
 
-func validateDNSLinkEntry(entry string) (key string, value string, reason string) {
+func validateDNSLinkEntry(entry string) (namespace string, identifier string, reason string) {
 	trimmed := strings.TrimSpace(entry[len(txtPrefix):])
 	if !strings.HasPrefix(trimmed, "/") {
 		return "", "", "WRONG_START"
@@ -359,18 +365,18 @@ func validateDNSLinkEntry(entry string) (key string, value string, reason string
 	}
 	parts := strings.Split(trimmed, "/")[1:]
 	if len(parts) == 0 {
-		return "", "", "KEY_MISSING"
+		return "", "", "NAMESPACE_MISSING"
 	}
-	key = strings.TrimSpace(parts[0])
-	if key == "" {
-		return "", "", "KEY_MISSING"
+	namespace = strings.TrimSpace(parts[0])
+	if namespace == "" {
+		return "", "", "NAMESPACE_MISSING"
 	}
 	if len(parts) == 1 {
-		return "", "", "NO_VALUE"
+		return "", "", "NO_IDENTIFIER"
 	}
-	value = strings.TrimSpace(strings.Join(parts[1:], "/"))
-	if value == "" {
-		return "", "", "NO_VALUE"
+	identifier = strings.TrimSpace(strings.Join(parts[1:], "/"))
+	if identifier == "" {
+		return "", "", "NO_IDENTIFIER"
 	}
-	return key, value, ""
+	return namespace, identifier, ""
 }

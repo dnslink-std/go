@@ -11,12 +11,12 @@ import (
 )
 
 type WriteOptions struct {
-	domains   []string
-	debug     bool
-	err       *log.Logger
-	out       *log.Logger
-	firstKey  interface{}
-	searchKey interface{}
+	domains  []string
+	debug    bool
+	err      *log.Logger
+	out      *log.Logger
+	firstNS  interface{}
+	searchNS interface{}
 }
 
 type Writer interface {
@@ -127,23 +127,23 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 	if len(write.options.domains) > 1 {
 		prefix = lookup + ": "
 	}
-	for key, values := range result.Links {
-		if write.options.searchKey != false && write.options.searchKey != key {
+	for ns, values := range result.Links {
+		if write.options.searchNS != false && write.options.searchNS != ns {
 			continue
 		}
 		for _, entry := range values {
-			value := entry.Value
-			value += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
+			identifier := entry.Identifier
+			identifier += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
 
-			if write.options.searchKey != false {
-				if write.options.searchKey != key {
+			if write.options.searchNS != false {
+				if write.options.searchNS != ns {
 					continue
 				}
-				out.Println(prefix + value)
+				out.Println(prefix + identifier)
 			} else {
-				out.Println(prefix + "/" + key + "/" + value)
+				out.Println(prefix + "/" + ns + "/" + identifier)
 			}
-			if write.options.firstKey != false {
+			if write.options.firstNS != false {
 				break
 			}
 		}
@@ -185,17 +185,17 @@ func (write *WriteReduced) write(lookup string, result dnslink.Result) {
 	if len(write.options.domains) > 1 {
 		prefix = lookup + ": "
 	}
-	for key, values := range result.Links {
-		if write.options.searchKey != false && write.options.searchKey != key {
+	for ns, values := range result.Links {
+		if write.options.searchNS != false && write.options.searchNS != ns {
 			continue
 		}
 		for _, entry := range values {
-			if write.options.searchKey != false {
-				out.Println(prefix + entry.Value)
+			if write.options.searchNS != false {
+				out.Println(prefix + entry.Identifier)
 			} else {
-				out.Println(prefix + "/" + key + "/" + entry.Value)
+				out.Println(prefix + "/" + ns + "/" + entry.Identifier)
 			}
-			if write.options.firstKey != false {
+			if write.options.firstNS != false {
 				break
 			}
 		}
@@ -235,15 +235,15 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 	err := write.options.err
 	if write.firstOut {
 		write.firstOut = false
-		out.Println("lookup,key,value,ttl,path")
+		out.Println("lookup,namespace,identifier,ttl,path")
 	}
-	for key, values := range result.Links {
-		if write.options.searchKey != false && write.options.searchKey != key {
+	for ns, values := range result.Links {
+		if write.options.searchNS != false && write.options.searchNS != ns {
 			continue
 		}
 		for _, value := range values {
-			out.Println(csv(lookup, key, value.Value, value.Ttl))
-			if write.options.firstKey != false {
+			out.Println(csv(lookup, ns, value.Identifier, value.Ttl))
+			if write.options.firstNS != false {
 				break
 			}
 		}
@@ -307,12 +307,12 @@ func main() {
 		format = "txt"
 	}
 	writeOpts := WriteOptions{
-		domains:   lookups,
-		firstKey:  options.first("first"),
-		searchKey: options.first("first", "key", "k"),
-		debug:     options.has("debug") || options.has("d"),
-		err:       log.New(os.Stderr, "", 0),
-		out:       log.New(os.Stdout, "", 0),
+		domains:  lookups,
+		firstNS:  options.first("first"),
+		searchNS: options.first("first", "ns", "n"),
+		debug:    options.has("debug") || options.has("d"),
+		err:      log.New(os.Stderr, "", 0),
+		out:      log.New(os.Stdout, "", 0),
 	}
 	var output Writer
 	if format == "txt" {
@@ -353,8 +353,8 @@ func showHelp(command string) int {
 	fmt.Printf(command + ` - resolve dns links in TXT records
 
 USAGE
-    ` + command + ` [--help] [--format=json|text|csv|reduced] [--key=<key>] \\
-        [--first=<key>] [--dns=server] [--debug] \\
+    ` + command + ` [--help] [--format=json|text|csv|reduced] [--ns=<ns>] \\
+        [--first=<ns>] [--dns=server] [--debug] \\
         <hostname> [...<hostname>]
 
 EXAMPLE
@@ -368,7 +368,7 @@ EXAMPLE
 
     # Receive all dnslink entries for multiple domains as csv
     > ` + command + ` -f=csv dnslink.io ipfs.io
-    lookup,key,value,path
+    lookup,namespace,identifier,path
     "dnslink.io","ipfs","QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo",
     "ipfs.io","ipns","website.ipfs.io",
 
@@ -392,8 +392,8 @@ OPTIONS
                            server it will use the system dns service. As server you
                            can specify a domain with port: 1.1.1.1:53
     --debug, -d            Render log output to stderr in the specified format.
-    --key, -k              Only render one particular dnslink key.
-		--first                Only render the first of the defined dnslink key.
+    --ns, -n               Only render one particular DNSLink namespace.
+		--first                Only render the first of the defined DNSLink namespace.
 
     Read more about it here: https://github.com/dnslink-std/go
 
