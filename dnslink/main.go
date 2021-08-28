@@ -17,6 +17,7 @@ type WriteOptions struct {
 	out      *log.Logger
 	firstNS  interface{}
 	searchNS interface{}
+	ttl      bool
 }
 
 type Writer interface {
@@ -45,6 +46,18 @@ func NewWriteJSON(options WriteOptions) *WriteJSON {
 	return &write
 }
 
+func removeTTL(input map[string]dnslink.NamespaceEntries) (output map[string][]string) {
+	output = map[string][]string{}
+	for name, links := range input {
+		identifiers := []string{}
+		for _, link := range links {
+			identifiers = append(identifiers, link.Identifier)
+		}
+		output[name] = identifiers
+	}
+	return output
+}
+
 func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 	out := write.options.out
 	err := write.options.err
@@ -55,8 +68,11 @@ func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 		prefix = ","
 	}
 
-	outLine := map[string]interface{}{
-		"links": result.Links,
+	outLine := map[string]interface{}{}
+	if write.options.ttl {
+		outLine["links"] = result.Links
+	} else {
+		outLine["links"] = removeTTL(result.Links)
 	}
 
 	if len(write.options.domains) > 1 {
@@ -133,7 +149,9 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 		}
 		for _, entry := range values {
 			identifier := entry.Identifier
-			identifier += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
+			if write.options.ttl {
+				identifier += " [ttl=" + fmt.Sprint(entry.Ttl) + "]"
+			}
 
 			if write.options.searchNS != false {
 				if write.options.searchNS != ns {
@@ -164,58 +182,6 @@ func (write *WriteTXT) write(lookup string, result dnslink.Result) {
 
 func (write *WriteTXT) end() {}
 
-type WriteReduced struct {
-	firstOut bool
-	firstErr bool
-	options  WriteOptions
-}
-
-func NewWriteReduced(options WriteOptions) *WriteReduced {
-	return &WriteReduced{
-		firstOut: true,
-		firstErr: true,
-		options:  options,
-	}
-}
-
-func (write *WriteReduced) write(lookup string, result dnslink.Result) {
-	out := write.options.out
-	err := write.options.err
-	prefix := ""
-	if len(write.options.domains) > 1 {
-		prefix = lookup + ": "
-	}
-	for ns, values := range result.Links {
-		if write.options.searchNS != false && write.options.searchNS != ns {
-			continue
-		}
-		for _, entry := range values {
-			if write.options.searchNS != false {
-				out.Println(prefix + entry.Identifier)
-			} else {
-				out.Println(prefix + "/" + ns + "/" + entry.Identifier)
-			}
-			if write.options.firstNS != false {
-				break
-			}
-		}
-	}
-	if write.options.debug {
-		for _, logEntry := range result.Log {
-			optional := ""
-			if logEntry.Entry != "" {
-				optional += " entry=" + logEntry.Entry
-			}
-			if logEntry.Reason != "" {
-				optional += " reason=" + logEntry.Reason
-			}
-			err.Println("[" + logEntry.Code + "]" + optional)
-		}
-	}
-}
-
-func (write *WriteReduced) end() {}
-
 type WriteCSV struct {
 	firstOut bool
 	firstErr bool
@@ -235,14 +201,24 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 	err := write.options.err
 	if write.firstOut {
 		write.firstOut = false
-		out.Println("lookup,namespace,identifier,ttl")
+		line := "lookup,namespace,identifier"
+		if write.options.ttl {
+			line += ",ttl"
+		}
+		out.Println(line)
 	}
 	for ns, values := range result.Links {
 		if write.options.searchNS != false && write.options.searchNS != ns {
 			continue
 		}
 		for _, value := range values {
-			out.Println(csv(lookup, ns, value.Identifier, value.Ttl))
+			var line string
+			if write.options.ttl {
+				line = csv(lookup, ns, value.Identifier, value.Ttl)
+			} else {
+				line = csv(lookup, ns, value.Identifier)
+			}
+			out.Println(line)
 			if write.options.firstNS != false {
 				break
 			}
@@ -285,7 +261,7 @@ func csv(rest ...interface{}) string {
 
 func (write *WriteCSV) end() {}
 
-var formats []interface{} = []interface{}{"json", "txt", "csv", "reduced"}
+var formats []interface{} = []interface{}{"json", "txt", "csv"}
 
 func main() {
 	options, lookups := getOptions(os.Args[1:])
@@ -313,14 +289,13 @@ func main() {
 		debug:    options.has("debug") || options.has("d"),
 		err:      log.New(os.Stderr, "", 0),
 		out:      log.New(os.Stdout, "", 0),
+		ttl:      options.has("ttl"),
 	}
 	var output Writer
 	if format == "txt" {
 		output = NewWriteTXT(writeOpts)
 	} else if format == "csv" {
 		output = NewWriteCSV(writeOpts)
-	} else if format == "reduced" {
-		output = NewWriteReduced(writeOpts)
 	} else {
 		output = NewWriteJSON(writeOpts)
 	}
@@ -353,7 +328,7 @@ func showHelp(command string) int {
 	fmt.Printf(command + ` - resolve dns links in TXT records
 
 USAGE
-    ` + command + ` [--help] [--format=json|text|csv|reduced] [--ns=<ns>] \\
+    ` + command + ` [--help] [--format=json|text|csv] [--ns=<ns>] \\
         [--first=<ns>] [--dns=server] [--debug] \\
         <hostname> [...<hostname>]
 
@@ -375,8 +350,8 @@ EXAMPLE
     # Receive ipfs entries for multiple domains as json
     > ` + command + ` -f=json -k=ipfs dnslink.io website.ipfs.io
     [
-    {"lookup":"website.ipfs.io","links":{"ipfs":"bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"}}
-    ,{"lookup":"dnslink.io","links":{"ipfs":"QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"}}
+    {"lookup":"website.ipfs.io","links":{"ipfs":["bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"]}}
+    ,{"lookup":"dnslink.io","links":{"ipfs":["QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"]}}
     ]
 
     # Receive both the result and log and write the output to files
@@ -387,7 +362,8 @@ EXAMPLE
 OPTIONS
     --help, -h             Show this help.
     --version, -v          Show the version of this command.
-    --format, -f           Output format json, text, reduced or csv (default=json)
+    --format, -f           Output format json, text or csv (default=text)
+    --ttl                  Include ttl in output (any format)
     --dns=<server>         Specify a dns server to use. If you don't specify a
                            server it will use the system dns service. As server you
                            can specify a domain with port: 1.1.1.1:53
