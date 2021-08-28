@@ -378,25 +378,25 @@ func processEntries(input []LookupEntry) (map[string]NamespaceEntries, []TxtEntr
 var entryCharset = regexp.MustCompile("^[\u0020-\u007e]+$")
 
 func validateDNSLinkEntry(entry string) (namespace string, identifier string, reason string) {
-	trimmed := strings.TrimSpace(entry[len(txtPrefix):])
-	if !strings.HasPrefix(trimmed, "/") {
+	entry = entry[len(txtPrefix):]
+	if !strings.HasPrefix(entry, "/") {
 		return "", "", "WRONG_START"
 	}
-	if !entryCharset.MatchString(trimmed) {
+	if !entryCharset.MatchString(entry) {
 		return "", "", "INVALID_CHARACTER"
 	}
-	parts := strings.Split(trimmed, "/")[1:]
+	parts := strings.Split(entry, "/")[1:]
 	if len(parts) == 0 {
 		return "", "", "NAMESPACE_MISSING"
 	}
-	namespace = strings.TrimSpace(parts[0])
+	namespace = parts[0]
 	if namespace == "" {
 		return "", "", "NAMESPACE_MISSING"
 	}
 	if len(parts) == 1 {
 		return "", "", "NO_IDENTIFIER"
 	}
-	identifier = strings.TrimSpace(strings.Join(parts[1:], "/"))
+	identifier = strings.Join(parts[1:], "/")
 	if identifier == "" {
 		return "", "", "NO_IDENTIFIER"
 	}

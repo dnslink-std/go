@@ -49,7 +49,7 @@ func TestValidateDNSLinkEntry(t *testing.T) {
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=//")), "", "", "NAMESPACE_MISSING")
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=/abcd/")), "", "", "NO_IDENTIFIER")
 	assertResult(t, arr(validateDNSLinkEntry("dnslink=/abcd/efgh")), "abcd", "efgh", "")
-	assertResult(t, arr(validateDNSLinkEntry("dnslink=/ abcd /  efgh ")), "abcd", "efgh", "")
+	assertResult(t, arr(validateDNSLinkEntry("dnslink=/ abcd /  efgh ")), " abcd ", "  efgh ", "")
 }
 
 func TestProcessEntries(t *testing.T) {
