@@ -235,7 +235,7 @@ func (write *WriteCSV) write(lookup string, result dnslink.Result) {
 	err := write.options.err
 	if write.firstOut {
 		write.firstOut = false
-		out.Println("lookup,namespace,identifier,ttl,path")
+		out.Println("lookup,namespace,identifier,ttl")
 	}
 	for ns, values := range result.Links {
 		if write.options.searchNS != false && write.options.searchNS != ns {
@@ -368,15 +368,15 @@ EXAMPLE
 
     # Receive all dnslink entries for multiple domains as csv
     > ` + command + ` -f=csv dnslink.io ipfs.io
-    lookup,namespace,identifier,path
-    "dnslink.io","ipfs","QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo",
-    "ipfs.io","ipns","website.ipfs.io",
+    lookup,namespace,identifier
+    "dnslink.io","ipfs","QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"
+    "ipfs.io","ipns","website.ipfs.io"
 
     # Receive ipfs entries for multiple domains as json
     > ` + command + ` -f=json -k=ipfs dnslink.io website.ipfs.io
     [
-    {"lookup":"website.ipfs.io","links":{"ipfs":"bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"},"path":[]}
-    ,{"lookup":"dnslink.io","links":{"ipfs":"QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"},"path":[]}
+    {"lookup":"website.ipfs.io","links":{"ipfs":"bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"}}
+    ,{"lookup":"dnslink.io","links":{"ipfs":"QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"}}
     ]
 
     # Receive both the result and log and write the output to files
