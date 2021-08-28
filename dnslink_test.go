@@ -141,6 +141,14 @@ func TestUDPLookup(t *testing.T) {
 	assert.InDelta(t, txt[0].Ttl, 1800, 1802) // 0 ~ 3600 + margin
 }
 
+func TestUtf8Value(t *testing.T) {
+	assert.Equal(t, utf8Value([]string{`\065`}), `A`)
+	assert.Equal(t, utf8Value([]string{`\0`, `90`}), `Z`)
+	assert.Equal(t, utf8Value([]string{`\096`}), "`")
+	assert.Equal(t, utf8Value([]string{`\\`}), `\`)
+	assert.Equal(t, utf8Value([]string{`\"`}), `"`)
+}
+
 func arr(input ...interface{}) []interface{} {
 	return input
 }

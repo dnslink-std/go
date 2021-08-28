@@ -79,9 +79,15 @@ func (s ByValue) Less(i, j int) bool {
 
 type LookupTXTFunc func(name string) (txt []LookupEntry, err error)
 
-var utf8Replace = regexp.MustCompile(`\\\d{3}`)
+var utf8CharReplace = regexp.MustCompile(`\\.`)
 
-func utf8ReplaceFunc(input []byte) (result []byte) {
+func utf8CharReplaceFunc(input []byte) (result []byte) {
+	return input[1:]
+}
+
+var utf8DigitReplace = regexp.MustCompile(`\\\d{3}`)
+
+func utf8DigitReplaceFunc(input []byte) (result []byte) {
 	result = make([]byte, 1)
 	num, _ := strconv.ParseUint(string(input[1:]), 10, 9)
 	result[0] = byte(num)
@@ -89,8 +95,10 @@ func utf8ReplaceFunc(input []byte) (result []byte) {
 }
 
 func utf8Value(input []string) string {
-	str := strings.Join(input, "")
-	return string(utf8Replace.ReplaceAllFunc([]byte(str), utf8ReplaceFunc))
+	bytes := []byte(strings.Join(input, ""))
+	bytes = utf8DigitReplace.ReplaceAllFunc(bytes, utf8DigitReplaceFunc)
+	bytes = utf8CharReplace.ReplaceAllFunc(bytes, utf8CharReplaceFunc)
+	return string(bytes)
 }
 
 type DNSRCode int
