@@ -362,7 +362,7 @@ OPTIONS
     --ns, -n               Only render one particular DNSLink namespace.
     --first                Only render the first of the defined DNSLink namespace.
 
-    Read more about it here: https://github.com/dnslink-std/go
+Read more about DNSLink at https://dnslink.dev.
 
 dnslink-go@` + dnslink.Version)
 	return 0
