@@ -369,7 +369,7 @@ OPTIONS
                            can specify a domain with port: 1.1.1.1:53
     --debug, -d            Render log output to stderr in the specified format.
     --ns, -n               Only render one particular DNSLink namespace.
-		--first                Only render the first of the defined DNSLink namespace.
+    --first                Only render the first of the defined DNSLink namespace.
 
     Read more about it here: https://github.com/dnslink-std/go
 
