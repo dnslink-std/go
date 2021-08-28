@@ -319,35 +319,47 @@ func showHelp(command string) int {
 	fmt.Printf(command + ` - resolve dns links in TXT records
 
 USAGE
-    ` + command + ` [--help] [--format=json|text|csv] [--ns=<ns>] \\
-        [--first=<ns>] [--dns=server] [--debug] \\
+    ` + command + ` [--help] [--format=json|text|csv] [--ns=<ns>] \
+        [--first=<ns>] [--dns=server] [--debug] \
         <hostname> [...<hostname>]
 
 EXAMPLE
     # Receive the dnslink entries for the dnslink.io domain.
-    > ` + command + ` dnslink.io
-    /ipfs/QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
+    > ` + command + ` dnslink.dev
+    /ipfs/QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF
 
-    # Receive only the ipfs entry as text for dnslink.io
-    > ` + command + ` -k=ipfs dnslink.io
-    QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo
+    # Receive only namespace "ipfs" entries as text for dnslink.io.
+    > ` + command + ` --ns=ipfs dnslink.dev
+    QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF
 
-    # Receive all dnslink entries for multiple domains as csv
-    > ` + command + ` -f=csv dnslink.io ipfs.io
+    # Receive only the first ipfs entry for the "ipfs" namespace.
+    > ` + command + ` --first=ipfs dnslink.dev
+    QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF
+
+    # Getting information about the --ttl as received from the server.
+    > ` + command + ` --ttl dnslink.dev
+    /ipfs/QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF  [ttl=53]
+
+    # Receive the dnslink entries using the system DNS.
+    > ` + command + ` --dns dnslink.dev
+    /ipfs/QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF
+
+    # Receive all dnslink entries for multiple domains as csv.
+    > ` + command + ` --format=csv dnslink.dev ipfs.io
     lookup,namespace,identifier
-    "dnslink.io","ipfs","QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"
     "ipfs.io","ipns","website.ipfs.io"
+    "dnslink.dev","ipfs","QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF"
 
-    # Receive ipfs entries for multiple domains as json
-    > ` + command + ` -f=json -k=ipfs dnslink.io website.ipfs.io
+    # Receive ipfs entries for multiple domains as json.
+    > ` + command + ` --format=json dnslink.dev ipfs.io
     [
-    {"lookup":"website.ipfs.io","links":{"ipfs":["bafybeiagozluzfopjadeigrjlsmktseozde2xc5prvighob7452imnk76a"]}}
-    ,{"lookup":"dnslink.io","links":{"ipfs":["QmTgQDr3xNgKBVDVJtyGhopHoxW4EVgpkfbwE4qckxGdyo"]}}
+    {"lookup":"ipfs.io","txtEntries":["/ipns/website.ipfs.io"],"links":{"ipns":["website.ipfs.io"]}}
+    ,{"lookup":"dnslink.dev","txtEntries":["/ipfs/QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF"],"links":{"ipfs":["QmXNosdfz3WQUHncsYBTw7diwYzCibVhrJmEhNNaMPQBQF"]}}
     ]
 
-    # Receive both the result and log and write the output to files
-    > ` + command + ` -f=csv -d dnslink.io \\
-        >dnslink-io.csv \\
+    # Receive both the result and log as csv and redirect each to files.
+    > ` + command + ` --format=csv --debug dnslink.io \
+        >dnslink-io.csv \
         2>dnslink-io.log.csv
 
 OPTIONS
