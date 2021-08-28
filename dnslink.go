@@ -44,6 +44,30 @@ type Result struct {
 	Log        []LogStatement              `json:"log"`
 }
 
+type ResultNoTtl struct {
+	TxtEntries []string            `json:"txtEntries"`
+	Links      map[string][]string `json:"links"`
+	Log        []LogStatement      `json:"log"`
+}
+
+func (result *Result) NoTtl() ResultNoTtl {
+	ttlRes := ResultNoTtl{}
+	ttlRes.TxtEntries = []string{}
+	ttlRes.Links = map[string][]string{}
+	for _, txtEntryTtl := range result.TxtEntries {
+		ttlRes.TxtEntries = append(ttlRes.TxtEntries, txtEntryTtl.Value)
+	}
+	for ns, identifiersTtl := range result.Links {
+		list := []string{}
+		for _, identifierTtl := range identifiersTtl {
+			list = append(list, identifierTtl.Identifier)
+		}
+		ttlRes.Links[ns] = list
+	}
+	ttlRes.Log = result.Log
+	return ttlRes
+}
+
 type TxtEntry struct {
 	Value string `json:"value"`
 	Ttl   uint32 `json:"ttl"`

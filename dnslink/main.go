@@ -46,18 +46,6 @@ func NewWriteJSON(options WriteOptions) *WriteJSON {
 	return &write
 }
 
-func removeTTL(input map[string]dnslink.NamespaceEntries) (output map[string][]string) {
-	output = map[string][]string{}
-	for name, links := range input {
-		identifiers := []string{}
-		for _, link := range links {
-			identifiers = append(identifiers, link.Identifier)
-		}
-		output[name] = identifiers
-	}
-	return output
-}
-
 func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 	out := write.options.out
 	err := write.options.err
@@ -71,8 +59,11 @@ func (write *WriteJSON) write(lookup string, result dnslink.Result) {
 	outLine := map[string]interface{}{}
 	if write.options.ttl {
 		outLine["links"] = result.Links
+		outLine["txtEntries"] = result.TxtEntries
 	} else {
-		outLine["links"] = removeTTL(result.Links)
+		noTtl := result.NoTtl()
+		outLine["links"] = noTtl.Links
+		outLine["txtEntries"] = noTtl.TxtEntries
 	}
 
 	if len(write.options.domains) > 1 {
