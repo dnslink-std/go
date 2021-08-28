@@ -93,10 +93,10 @@ func utf8Value(input []string) string {
 	return string(utf8Replace.ReplaceAllFunc([]byte(str), utf8ReplaceFunc))
 }
 
-type RCode int
+type DNSRCode int
 
 const (
-	NoError RCode = iota
+	NoError DNSRCode = iota
 	Success
 	FormErr
 	ServFail
@@ -148,44 +148,44 @@ var rcodeDetails = []string{
 	"Bad/missing Server Cookie.",
 }
 
-func (code RCode) Name() string {
+func (code DNSRCode) Name() string {
 	if int(code) > len(rcodeNames) {
 		return ""
 	}
 	return rcodeNames[code]
 }
-func (code RCode) Detail() string {
+func (code DNSRCode) Detail() string {
 	if int(code) > len(rcodeDetails) || rcodeDetails[code] == "" {
 		return "Undefined Error."
 	}
 	return rcodeDetails[code]
 }
 
-type RCodeError struct {
-	RCode  RCode  `json:"rcode"`
-	Code   string `json:"code"`
-	Name   string `json:"error"`
-	Domain string `json:"domain"`
+type DNSRCodeError struct {
+	DNSRCode DNSRCode `json:"dnsrcode"`
+	Code     string   `json:"code"`
+	Name     string   `json:"error"`
+	Domain   string   `json:"domain"`
 }
 
-func NewRCodeError(rcode int, domain string) RCodeError {
-	code := RCode(rcode)
-	return RCodeError{
-		RCode:  code,
-		Name:   code.Name(),
-		Code:   fmt.Sprintf("RCODE_%d", rcode),
-		Domain: domain,
+func NewDNSRCodeError(dnsrcode int, domain string) DNSRCodeError {
+	code := DNSRCode(dnsrcode)
+	return DNSRCodeError{
+		DNSRCode: code,
+		Name:     code.Name(),
+		Code:     fmt.Sprintf("DNS_RCODE_%d", dnsrcode),
+		Domain:   domain,
 	}
 }
 
-func (e RCodeError) Error() string {
-	name := e.RCode.Name()
+func (e DNSRCodeError) Error() string {
+	name := e.DNSRCode.Name()
 	if name == "" {
 		name = ""
 	} else {
 		name = fmt.Sprintf("error=%s ,", name)
 	}
-	return fmt.Sprintf("%s (rcode=%d, %sdomain=%s)", e.RCode.Detail(), int(e.RCode), name, e.Domain)
+	return fmt.Sprintf("%s (rcode=%d, %sdomain=%s)", e.DNSRCode.Detail(), int(e.DNSRCode), name, e.Domain)
 }
 
 func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
@@ -215,7 +215,7 @@ func NewUDPLookup(servers []string, udpSize uint16) LookupTXTFunc {
 			return nil, err
 		}
 		if res.Rcode != 0 {
-			return nil, NewRCodeError(res.Rcode, domain)
+			return nil, NewDNSRCodeError(res.Rcode, domain)
 		}
 		entries = make([]LookupEntry, len(res.Answer))
 		for index, answer := range res.Answer {
@@ -246,7 +246,7 @@ func wrapLookup(r *net.Resolver, ttl uint32) LookupTXTFunc {
 		txt, err := r.LookupTXT(context.Background(), domain)
 		if err != nil {
 			if strings.Contains(err.Error(), "no such host") {
-				err = NewRCodeError(3, domain)
+				err = NewDNSRCodeError(3, domain)
 			}
 			return nil, err
 		}
@@ -304,8 +304,8 @@ func isNotFoundError(err error) bool {
 	switch e := err.(type) {
 	default:
 		return false
-	case RCodeError:
-		return e.RCode == 3
+	case DNSRCodeError:
+		return e.DNSRCode == 3
 	}
 }
 

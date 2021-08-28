@@ -28,7 +28,7 @@ func main() {
 		switch e := error.(type) {
 		default:
 			exitWithError(e.Error(), "")
-		case dnslink.RCodeError:
+		case dnslink.DNSRCodeError:
 			exitWithError(e.Code, e.Error())
 		}
 	}

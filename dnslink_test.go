@@ -16,7 +16,7 @@ type mockDNS struct {
 func (m *mockDNS) lookupTXT(name string) (res []LookupEntry, err error) {
 	txt, ok := m.entries[name]
 	if !ok {
-		return nil, NewRCodeError(3, fmt.Sprintf("No TXT entry for %s", name))
+		return nil, NewDNSRCodeError(3, fmt.Sprintf("No TXT entry for %s", name))
 	}
 	res = make([]LookupEntry, len(txt))
 	for index, entry := range txt {
