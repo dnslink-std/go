@@ -21,5 +21,5 @@ jobs:
         node-version: 16
     - run: go get
     - run: go test
-    - run: go build -o=integration/main integration/main.go && npx @dnslink/test@^0.10.0 -e log -- ./integration/main
+    - run: go build -o=integration/main integration/main.go && npx @dnslink/test@^0.11.1 -e log -- ./integration/main
       if: ${{ matrix.os == 'ubuntu-latest' }}
