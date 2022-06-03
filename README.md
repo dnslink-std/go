@@ -26,9 +26,9 @@ if error != nil {
     // - Networking errors
     // - Incompatible dns packets provided by server
     panic(e)
-  case dnslink.RCodeError:
-    err.RCode // Error code number following - https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
-    err.RCode.Name() // Error code name following (same list)
+  case dnslink.DNSRCodeError:
+    err.DNSRCode // Error code number following - https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-6
+    err.Name // Error code name following (same list)
     err.Code // "RCODE_%s", err.RCode
     err.Domain // Domain lookup that resulted in the error
     if e.RCode == 3 {
